@@ -1,0 +1,17 @@
+@import 'tailwindcss';
+
+@theme {
+  /* Unique couleur d'accent des actions principales. */
+  --color-accent: #4f46e5;
+  --color-accent-strong: #4338ca;
+}
+
+html,
+body {
+  overscroll-behavior: none;
+  -webkit-tap-highlight-color: transparent;
+}
+
+body {
+  font-family: system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif;
+}
