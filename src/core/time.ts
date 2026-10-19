@@ -18,6 +18,18 @@ export function formatRulerLabel(ms: Ms): string {
   return tenths === 0 ? base : `${base}.${tenths}`;
 }
 
+const dateFormat = new Intl.DateTimeFormat('fr-FR', { day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' });
+
+/** Nom par défaut d'un nouveau projet : « Projet du 19 oct., 22:30 ». */
+export function defaultProjectName(date: Date): string {
+  return `Projet du ${dateFormat.format(date)}`;
+}
+
+/** Date de modification lisible : « 19 oct., 22:30 ». */
+export function formatDate(timestamp: number): string {
+  return dateFormat.format(new Date(timestamp));
+}
+
 const RULER_STEPS_MS: Ms[] = [100, 200, 500, 1000, 2000, 5000, 10000, 15000, 30000, 60000];
 
 /** Plus petit pas de graduation laissant au moins `minSpacingPx` pixels entre deux graduations. */

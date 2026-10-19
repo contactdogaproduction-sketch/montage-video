@@ -23,6 +23,8 @@ interface EditorState {
   setPlayhead: (t: Ms) => void;
   setPlaying: (playing: boolean) => void;
   setZoom: (pxPerSecond: number) => void;
+  /** Remet l'éditeur à zéro (ouverture d'un autre projet). */
+  reset: () => void;
 }
 
 export const useEditorStore = create<EditorState>()((set) => ({
@@ -39,4 +41,5 @@ export const useEditorStore = create<EditorState>()((set) => ({
   setPlayhead: (t) => set({ playhead: Math.max(0, Math.round(t)) }),
   setPlaying: (playing) => set({ playing }),
   setZoom: (pxPerSecond) => set({ pxPerSecond: Math.min(MAX_ZOOM, Math.max(MIN_ZOOM, pxPerSecond)) }),
+  reset: () => set({ selectedClipId: null, selectedTransitionId: null, inspectorOpen: false, playhead: 0, playing: false }),
 }));

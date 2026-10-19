@@ -112,7 +112,13 @@ Règles d'architecture :
   concaténation et multiplexage avec la piste audio mixée via `OfflineAudioContext`.
 - **Fichiers de FFmpeg.wasm** (core + wasm) servis localement depuis le projet, pas depuis un
   CDN (compatibilité COEP et fonctionnement hors ligne de la PWA).
-- **Médias** : conservés en mémoire (object URLs, `store/mediaRegistry.ts`) ; persistance IndexedDB en étape 4.
+- **Médias** : en mémoire (object URLs, `store/mediaRegistry.ts`) et enregistrés sur l'appareil à l'import.
+- **Sauvegarde** (`store/persistence.ts`, IndexedDB « montage-video » : `projects`, `media` indexé par
+  projet) pilotée par `features/projects/session.ts` : projet enregistré 800 ms après chaque
+  modification et quand l'app passe en arrière-plan ; le dernier projet se rouvre au lancement ;
+  `core/migrate.ts` complète les projets enregistrés par une version plus ancienne (à tenir à jour
+  à chaque nouveau champ du modèle). Fichiers non référencés supprimés à l'ouverture d'un projet.
+  `navigator.storage.persist()` demandé au démarrage.
 - **Pistes** (`Project.tracks`, de la plus basse à la plus haute) : `main` (clips accolés depuis 0,
   un trim décale la suite), puis pistes libres `overlay`, `text`, `sticker`, `audio` (clips placés
   librement, sans chevauchement). Une piste libre vide est supprimée. Déposer sur une place prise

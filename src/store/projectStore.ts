@@ -20,6 +20,8 @@ interface ProjectState {
    * sinon, une entrée d'historique.
    */
   apply: (update: (project: Project) => Project) => void;
+  /** Ouvre un autre projet : nouvel historique (on ne peut pas annuler vers le projet précédent). */
+  replaceProject: (project: Project) => void;
   undo: () => void;
   redo: () => void;
 }
@@ -56,6 +58,8 @@ export const useProjectStore = create<ProjectState>()((set, get) => ({
     if (get().gestureBase) get().updateGesture(update);
     else get().commit(update);
   },
+
+  replaceProject: (project) => set({ history: createHistory(project), gestureBase: null }),
 
   undo: () => {
     if (get().gestureBase) return;
