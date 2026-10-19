@@ -1,4 +1,4 @@
-import { CENTERED, clipEnd } from './clip';
+import { CENTERED, clipEnd, setClipSpeed } from './clip';
 import {
   findClip,
   hasRoom,
@@ -12,7 +12,7 @@ import {
   trimClipInTrack,
   type TrimEdge,
 } from './track';
-import type { Clip, MediaInfo, Ms, Project, Track, TrackKind } from './types';
+import type { AspectFormat, Clip, MediaInfo, Ms, Project, Track, TrackKind } from './types';
 
 export const MAIN_TRACK_ID = 'main';
 
@@ -20,10 +20,39 @@ export function createTrack(id: string, kind: TrackKind): Track {
   return { id, kind, clips: [], volume: 1 };
 }
 
+export interface FormatDefinition {
+  format: AspectFormat;
+  label: string;
+  hint: string;
+  width: number;
+  height: number;
+}
+
+/** Formats proposés, exportés en 1080p. */
+export const FORMATS: FormatDefinition[] = [
+  { format: '9:16', label: 'Vertical', hint: 'Reels, TikTok, Shorts', width: 1080, height: 1920 },
+  { format: '1:1', label: 'Carré', hint: 'Publication Instagram, Facebook', width: 1080, height: 1080 },
+  { format: '16:9', label: 'Horizontal', hint: 'YouTube, écran d’ordinateur', width: 1920, height: 1080 },
+];
+
+export function formatDefinition(format: AspectFormat): FormatDefinition {
+  return FORMATS.find((f) => f.format === format) ?? (FORMATS[0] as FormatDefinition);
+}
+
+/**
+ * Change le format du projet. Les positions des éléments sont relatives au cadre :
+ * ils restent au même endroit proportionnellement.
+ */
+export function setProjectFormat(project: Project, format: AspectFormat): Project {
+  const { width, height } = formatDefinition(format);
+  return { ...project, format, width, height };
+}
+
 export function createProject(id: string): Project {
   return {
     id,
     name: 'Nouveau projet',
+    format: '9:16',
     width: 1080,
     height: 1920,
     fps: 30,
@@ -168,6 +197,22 @@ export function duplicateClipInProject(project: Project, clipId: string, newId: 
   if (track.kind === 'main') return replaceTrack(project, insertInMainAt(track, copy, copy.start));
   if (hasRoom(track, copy.start, copy.duration)) return replaceTrack(project, insertClip(track, copy));
   return placeClip(project, copy, newTrackId, track.id);
+}
+
+/**
+ * Change la vitesse d'un clip vidéo ou audio. Sur une piste libre, si le clip ralenti
+ * déborde sur son voisin, il part sur une autre piste compatible ou une nouvelle (`spareTrackId`).
+ */
+export function changeClipSpeed(project: Project, clipId: string, speed: number, spareTrackId: string): Project {
+  const location = findClipLocation(project, clipId);
+  if (!location || location.clip.type !== 'media') return project;
+  const changed = setClipSpeed(location.clip, speed);
+  const { track } = location;
+  if (track.kind === 'main' || hasRoom(track, changed.start, changed.duration, clipId)) {
+    return replaceTrack(project, replaceClip(track, changed));
+  }
+  const without = replaceTrack(project, removeClip(track, clipId));
+  return pruneEmptyTracks(placeClip(without, changed, spareTrackId, track.id));
 }
 
 export function trimClipInProject(project: Project, clipId: string, edge: TrimEdge, delta: Ms): Project {

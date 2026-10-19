@@ -7,10 +7,25 @@ import { getMediaSource } from '../../store/mediaRegistry';
 export const EXPORT_SAMPLE_RATE = 48000;
 
 /**
- * Mixe le son de toutes les pistes (vidéos et fichiers audio) avec volumes et fondus.
+ * Change la vitesse d'un extrait sonore sans changer la hauteur de la voix
+ * (fourni par l'export, qui utilise le filtre `atempo` de FFmpeg).
+ */
+export type TimeStretcher = (segment: AudioBuffer, speed: number) => Promise<AudioBuffer>;
+
+/** Copie le passage [from, from + length[ (en secondes) d'un son décodé. */
+function sliceBuffer(ctx: BaseAudioContext, buffer: AudioBuffer, from: number, length: number): AudioBuffer {
+  const start = Math.max(0, Math.round(from * buffer.sampleRate));
+  const end = Math.min(buffer.length, start + Math.round(length * buffer.sampleRate));
+  const slice = ctx.createBuffer(buffer.numberOfChannels, Math.max(1, end - start), buffer.sampleRate);
+  for (let c = 0; c < buffer.numberOfChannels; c++) slice.copyToChannel(buffer.getChannelData(c).subarray(start, end), c);
+  return slice;
+}
+
+/**
+ * Mixe le son de toutes les pistes (vidéos et fichiers audio) avec volumes, fondus et vitesses.
  * Silence si aucun clip n'a de son.
  */
-export async function mixProjectAudio(project: Project, signal: AbortSignal): Promise<AudioBuffer> {
+export async function mixProjectAudio(project: Project, signal: AbortSignal, stretch?: TimeStretcher): Promise<AudioBuffer> {
   const seconds = projectDuration(project) / 1000;
   const length = Math.max(1, Math.ceil(seconds * EXPORT_SAMPLE_RATE));
   const ctx = new OfflineAudioContext(2, length, EXPORT_SAMPLE_RATE);
@@ -51,9 +66,17 @@ export async function mixProjectAudio(project: Project, signal: AbortSignal): Pr
         gain.gain.linearRampToValueAtTime(0, end);
       }
       const node = ctx.createBufferSource();
-      node.buffer = buffer;
       node.connect(gain).connect(ctx.destination);
-      node.start(start, clip.inPoint / 1000, clip.duration / 1000);
+      if (clip.speed !== 1 && stretch) {
+        // Passage de la source lu par ce clip, accéléré ou ralenti en gardant la hauteur de la voix.
+        const segment = sliceBuffer(ctx, buffer, clip.inPoint / 1000, (clip.duration * clip.speed) / 1000);
+        node.buffer = await stretch(segment, clip.speed);
+        node.start(start, 0, clip.duration / 1000);
+      } else {
+        node.buffer = buffer;
+        node.playbackRate.value = clip.speed;
+        node.start(start, clip.inPoint / 1000, (clip.duration * clip.speed) / 1000);
+      }
     }
   }
 

@@ -204,7 +204,9 @@ export class PreviewPlayer {
       if (!media || !player || used.has(player)) continue;
       used.add(player);
       const target = sourceTimeAt(clip, t) / 1000;
-      if (Math.abs(player.currentTime - target) > RESYNC_THRESHOLD_S) player.currentTime = target;
+      if (Math.abs(player.currentTime - target) > RESYNC_THRESHOLD_S * clip.speed) player.currentTime = target;
+      // Vitesse du clip ; le navigateur garde la hauteur de la voix (preservesPitch, actif par défaut).
+      if (player.playbackRate !== clip.speed) player.playbackRate = clip.speed;
       const node = this.gains.get(playerKey(media.id, slot));
       if (node) node.gain.value = gain;
       else player.volume = Math.min(1, gain);
@@ -238,7 +240,7 @@ export class PreviewPlayer {
     const master = activeMediaClips(this.project, this.time)[0];
     const player = master ? this.players.get(playerKey(master.clip.mediaId, master.slot)) : undefined;
     if (master && player && !player.paused && !player.seeking && player.readyState >= 3) {
-      const mediaTime = master.clip.start + player.currentTime * 1000 - master.clip.inPoint;
+      const mediaTime = master.clip.start + (player.currentTime * 1000 - master.clip.inPoint) / master.clip.speed;
       if (Math.abs(mediaTime - t) < 500) {
         t = mediaTime;
         this.anchorTime = t;

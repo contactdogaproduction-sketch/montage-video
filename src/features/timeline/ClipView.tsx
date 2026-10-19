@@ -2,6 +2,7 @@ import type { CSSProperties } from 'react';
 import type { Clip, Project } from '../../core/types';
 import { getMediaSource } from '../../store/mediaRegistry';
 import { useTrimHandle } from '../cut/useTrimHandle';
+import { speedLabel } from '../speed/SpeedPanel';
 import { useClipDrag } from './useClipDrag';
 
 interface ClipViewProps {
@@ -86,6 +87,7 @@ export function ClipView({ project, clip, left, width, pxPerSecond, selected, dr
         </span>
       )}
       <span className="pointer-events-none absolute right-5 bottom-0.5 rounded bg-black/55 px-1 text-[10px] font-medium text-white">
+        {clip.type === 'media' && clip.speed !== 1 && `${speedLabel(clip.speed)} · `}
         {(clip.duration / 1000).toFixed(1)} s
       </span>
       {selected && (

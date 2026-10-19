@@ -20,6 +20,8 @@ export function mediaClip(id: string, over: Partial<MediaClip> = {}): MediaClip 
     transform: CENTERED,
     keyframes: [],
     transition: null,
+    speed: 1,
+    fit: 'contain',
     ...over,
   };
 }

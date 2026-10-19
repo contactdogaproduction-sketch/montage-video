@@ -13,9 +13,32 @@ export function clipEnd(clip: Clip): Ms {
   return clip.start + clip.duration;
 }
 
-/** Temps dans la source correspondant au temps `t` de la timeline. */
+/** Vitesses proposées. */
+export const SPEEDS = [0.5, 1, 1.5, 2] as const;
+
+/** Temps dans la source correspondant au temps `t` de la timeline (vitesse comprise). */
 export function sourceTimeAt(clip: MediaClip, t: Ms): Ms {
-  return clip.inPoint + (t - clip.start);
+  return clip.inPoint + (t - clip.start) * clip.speed;
+}
+
+/** Vitesse d'un clip (1 pour un texte ou un sticker). */
+export function clipSpeed(clip: Clip): number {
+  return clip.type === 'media' ? clip.speed : 1;
+}
+
+/**
+ * Change la vitesse : le passage de la source reste le même, la durée sur la timeline s'adapte
+ * (2x = deux fois plus court) ; les keyframes restent sur les mêmes images.
+ */
+export function setClipSpeed(clip: Clip, speed: number): Clip {
+  if (clip.type !== 'media' || speed <= 0 || speed === clip.speed) return clip;
+  const ratio = clip.speed / speed;
+  return {
+    ...clip,
+    speed,
+    duration: Math.max(MIN_CLIP_DURATION, Math.round(clip.duration * ratio)),
+    keyframes: clip.keyframes.map((k) => ({ ...k, time: Math.round(k.time * ratio) })),
+  };
 }
 
 export function createMediaClip(id: string, media: MediaInfo, start: Ms, transform: Transform = CENTERED): MediaClip {
@@ -32,6 +55,8 @@ export function createMediaClip(id: string, media: MediaInfo, start: Ms, transfo
     transform,
     keyframes: [],
     transition: null,
+    speed: 1,
+    fit: 'contain',
   };
 }
 
@@ -74,20 +99,24 @@ function clamp(value: number, min: number, max: number): number {
  */
 export function trimStart(clip: Clip, delta: Ms, sourceDuration: Ms | null, minStart: Ms = -Infinity): Clip {
   const usesSource = clip.type === 'media' && sourceDuration !== null;
-  const minDelta = Math.max(usesSource ? -clip.inPoint : -Infinity, minStart - clip.start);
+  const speed = clipSpeed(clip);
+  // `delta` est un temps de timeline : il couvre `delta × vitesse` de la source.
+  const minDelta = Math.max(usesSource ? -clip.inPoint / speed : -Infinity, minStart - clip.start);
   const d = Math.round(clamp(delta, minDelta, clip.duration - MIN_CLIP_DURATION));
   const start = clip.start + d;
   const duration = clip.duration - d;
   const keyframes = shiftKeyframes(clip.keyframes, -d);
-  if (clip.type === 'media' && usesSource) return { ...clip, start, duration, keyframes, inPoint: clip.inPoint + d };
+  if (clip.type === 'media' && usesSource) {
+    return { ...clip, start, duration, keyframes, inPoint: Math.max(0, Math.round(clip.inPoint + d * speed)) };
+  }
   return { ...clip, start, duration, keyframes };
 }
 
 /** Déplace la fin du clip de `delta` ms (négatif = raccourcir), dans la limite de la source et de `maxEnd`. */
 export function trimEnd(clip: Clip, delta: Ms, sourceDuration: Ms | null, maxEnd: Ms = Infinity): Clip {
-  const sourceMax = clip.type === 'media' && sourceDuration !== null ? sourceDuration - clip.inPoint : Infinity;
+  const sourceMax = clip.type === 'media' && sourceDuration !== null ? (sourceDuration - clip.inPoint) / clip.speed : Infinity;
   const maxDuration = Math.min(sourceMax, maxEnd - clip.start);
-  const duration = Math.round(clamp(clip.duration + delta, MIN_CLIP_DURATION, Math.max(MIN_CLIP_DURATION, maxDuration)));
+  const duration = Math.floor(clamp(clip.duration + delta, MIN_CLIP_DURATION, Math.max(MIN_CLIP_DURATION, maxDuration)));
   return { ...clip, duration };
 }
 
@@ -113,7 +142,7 @@ export function splitClip(clip: Clip, t: Ms, newId: string): [Clip, Clip] | null
     case 'media':
       return [
         { ...clip, ...left, fadeOut: 0, transition: null },
-        { ...clip, ...right, inPoint: clip.inPoint + leftDuration, fadeIn: 0 },
+        { ...clip, ...right, inPoint: Math.round(clip.inPoint + leftDuration * clip.speed), fadeIn: 0 },
       ];
     case 'text':
       return [

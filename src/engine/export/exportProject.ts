@@ -61,6 +61,26 @@ function canvasToJpeg(canvas: HTMLCanvasElement): Uint8Array {
   return bytes;
 }
 
+let stretchCount = 0;
+
+/**
+ * Accélère ou ralentit un extrait sonore avec le filtre `atempo` de FFmpeg, qui garde la hauteur
+ * de la voix (la vitesse de lecture du navigateur la changerait : effet « voix de canard »).
+ */
+async function stretchAudio(ffmpeg: FFmpeg, segment: AudioBuffer, speed: number): Promise<AudioBuffer> {
+  const id = stretchCount++;
+  const input = `tempo_in_${id}.wav`;
+  const output = `tempo_out_${id}.wav`;
+  await ffmpeg.writeFile(input, encodeWav(segment));
+  await run(ffmpeg, ['-i', input, '-filter:a', `atempo=${speed}`, output]);
+  const data = await ffmpeg.readFile(output);
+  await ffmpeg.deleteFile(input);
+  await ffmpeg.deleteFile(output);
+  if (typeof data === 'string') throw new Error('Son accéléré illisible.');
+  const decoder = new OfflineAudioContext(segment.numberOfChannels, 1, segment.sampleRate);
+  return decoder.decodeAudioData(data.slice().buffer);
+}
+
 async function run(ffmpeg: FFmpeg, args: string[]): Promise<void> {
   const code = await ffmpeg.exec(args);
   if (code !== 0) throw new Error(`L’encodage a échoué (code ${code}).`);
@@ -103,7 +123,7 @@ export async function exportProject(project: Project, { onProgress, signal }: Ex
 
     signal.throwIfAborted();
     onProgress({ ratio: 0.02, stage: 'audio' });
-    const audio = await mixProjectAudio(project, signal);
+    const audio = await mixProjectAudio(project, signal, (segment, speed) => stretchAudio(ffmpeg, segment, speed));
     await ffmpeg.writeFile('audio.wav', encodeWav(audio));
 
     const canvas = document.createElement('canvas');

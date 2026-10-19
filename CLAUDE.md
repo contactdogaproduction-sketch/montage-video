@@ -134,6 +134,12 @@ Règles d'architecture :
   visibles et les médias audibles (fondu croisé du son). Deux lecteurs par vidéo (« slot ») pour
   une transition entre deux morceaux d'une même vidéo. Flou par réduction/agrandissement
   (`ctx.filter` absent de Safari iPhone).
+- **Vitesse** (`MediaClip.speed`, 0,5/1/1,5/2) : `sourceTimeAt = inPoint + (t - start) × vitesse` ;
+  changer la vitesse garde le passage de la source et adapte la durée (`setClipSpeed`,
+  `changeClipSpeed` qui déplace le clip si une piste libre déborde). Aperçu : `playbackRate`
+  (hauteur conservée par le navigateur). Export : son passé par `atempo` de FFmpeg (`stretchAudio`).
+- **Format** (`Project.format` 9:16 / 1:1 / 16:9, `FORMATS`) : dimensions 1080p déduites du format ;
+  positions relatives au cadre. Cadrage par clip `fit` : `contain` (Ajuster) ou `cover` (Remplir).
 - **Glisser-déposer** : souris = glisser direct ; doigt = appui long (400 ms) pour ne pas gêner le
   défilement. Aimantation (10 px écran) sur bords des clips, curseur et 0.
 - **Polices** : Montserrat 800, Bebas Neue, Pacifico via `@fontsource` (servies localement).

@@ -72,7 +72,13 @@ export interface MediaClip extends ClipBase {
   fadeOut: Ms;
   /** Transition vers le clip suivant (piste principale uniquement). */
   transition: Transition | null;
+  /** Vitesse de lecture (0,5 à 2) : le clip dure `passage de la source / vitesse` sur la timeline. */
+  speed: number;
+  /** Cadrage dans le cadre : image entière (bandes) ou cadre rempli (image rognée). */
+  fit: FitMode;
 }
+
+export type FitMode = 'contain' | 'cover';
 
 export type FontId = 'montserrat' | 'bebas' | 'pacifico';
 
@@ -119,10 +125,13 @@ export interface Track {
   volume: number;
 }
 
+export type AspectFormat = '9:16' | '1:1' | '16:9';
+
 export interface Project {
   id: string;
   name: string;
-  /** Dimensions de rendu (export et repère de l'aperçu). */
+  format: AspectFormat;
+  /** Dimensions de rendu (export et repère de l'aperçu), déduites du format. */
   width: number;
   height: number;
   fps: number;

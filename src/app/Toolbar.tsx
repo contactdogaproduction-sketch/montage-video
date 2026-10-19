@@ -1,4 +1,5 @@
 import { AudioButton } from '../features/audio/AudioButton';
+import { FormatButton } from '../features/format/FormatButton';
 import { CutTools } from '../features/cut/CutTools';
 import { ImportButton } from '../features/import/ImportButton';
 import { OverlayButton } from '../features/overlay/OverlayButton';
@@ -27,6 +28,7 @@ export function Toolbar() {
       <AddTextButton />
       <StickerButton />
       <AudioButton />
+      <FormatButton />
     </>
   );
   const clipTools = (

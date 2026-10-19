@@ -1,5 +1,5 @@
 import { CENTERED } from './clip';
-import { MAIN_TRACK_ID, createProject, createTrack } from './project';
+import { FORMATS, MAIN_TRACK_ID, createProject, createTrack, setProjectFormat } from './project';
 import type { Clip, MediaInfo, Project, TextStyle, Track } from './types';
 
 type Raw = Record<string, unknown>;
@@ -13,7 +13,7 @@ function migrateClip(raw: Raw): Clip | null {
   const base = { transform: CENTERED, keyframes: [], ...raw };
   switch (raw.type) {
     case 'media':
-      return { volume: 1, fadeIn: 0, fadeOut: 0, inPoint: 0, transition: null, ...base } as unknown as Clip;
+      return { volume: 1, fadeIn: 0, fadeOut: 0, inPoint: 0, transition: null, speed: 1, fit: 'contain', ...base } as unknown as Clip;
     case 'text':
       return { text: '', animationIn: 'none', animationOut: 'none', ...base, style: { ...DEFAULT_STYLE, ...(isObject(raw.style) ? raw.style : {}) } } as unknown as Clip;
     case 'sticker':
@@ -41,5 +41,8 @@ export function migrateProject(raw: unknown, fallbackId: string): Project {
   const tracks = asArray(raw.tracks).filter(isObject).map(migrateTrack);
   if (!tracks.some((t) => t.kind === 'main')) tracks.unshift(createTrack(MAIN_TRACK_ID, 'main'));
   const media = isObject(raw.media) ? (raw.media as Record<string, MediaInfo>) : {};
-  return { ...defaults, ...raw, media, tracks } as Project;
+  const merged = { ...defaults, ...raw, media, tracks } as Project;
+  // Format inconnu ou absent (projets d'avant les formats) : vertical ; dimensions toujours cohérentes.
+  const format = FORMATS.some((f) => f.format === merged.format) ? merged.format : '9:16';
+  return setProjectFormat(merged, format);
 }

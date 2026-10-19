@@ -1,7 +1,7 @@
 import { animatedTextTransform } from '../core/animation';
 import { visibleLayers, type Layer } from '../core/composition';
 import { cssFont } from '../core/fonts';
-import { fitContain } from '../core/geometry';
+import { fitContain, fitCover } from '../core/geometry';
 import { transformAtTime } from '../core/keyframes';
 import type { LayerEffect } from '../core/transition';
 import type { Clip, MediaInfo, Ms, Project, StickerClip, TextClip, Transform } from '../core/types';
@@ -42,7 +42,8 @@ export function baseSize(project: Project, clip: Clip): { width: number; height:
     case 'media': {
       const media = project.media[clip.mediaId];
       if (!media || media.kind === 'audio') return { width: 0, height: 0 };
-      const rect = fitContain(media.width, media.height, project.width, project.height);
+      const fit = clip.fit === 'cover' ? fitCover : fitContain;
+      const rect = fit(media.width, media.height, project.width, project.height);
       return { width: rect.width, height: rect.height };
     }
     case 'sticker': {

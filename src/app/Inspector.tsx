@@ -5,6 +5,7 @@ import { AudioPanel } from '../features/audio/AudioPanel';
 import { OverlayPanel } from '../features/overlay/OverlayPanel';
 import { StickerPanel } from '../features/stickers/StickerPanel';
 import { TextPanel } from '../features/text/TextPanel';
+import { SpeedPanel } from '../features/speed/SpeedPanel';
 import { TransitionPanel } from '../features/transitions/TransitionPanel';
 import { useEditorStore } from '../store/editorStore';
 import { useProject } from '../store/projectStore';
@@ -25,11 +26,13 @@ function panelFor(project: Project, clipId: string): { title: string; content: R
       if (!media) return null;
       const visual = media.kind !== 'audio' ? <OverlayPanel clip={clip} overlay={track.kind === 'overlay'} /> : null;
       const audio = media.kind !== 'image' ? <AudioPanel clip={clip} track={track} /> : null;
+      const speed = media.kind !== 'image' ? <SpeedPanel clip={clip} /> : null;
       const title = media.kind === 'audio' ? 'Audio' : track.kind === 'overlay' ? 'Incrustation' : media.kind === 'image' ? 'Photo' : 'Vidéo';
       return {
         title,
         content: (
           <>
+            {speed}
             {visual}
             {audio}
           </>

@@ -71,7 +71,7 @@ export function ExportButton() {
           {state.status === 'ready' && (
             <div className="flex flex-col gap-3">
               <p className="text-sm text-neutral-600">
-                MP4 · 1080 × 1920 · 30 images/s · durée {formatTime(duration)}
+                MP4 · {project.width} × {project.height} · 30 images/s · durée {formatTime(duration)}
               </p>
               <p className="text-sm text-neutral-500">
                 L’export se fait entièrement sur cet appareil et peut prendre plusieurs fois la durée de la vidéo. Gardez la page ouverte.
