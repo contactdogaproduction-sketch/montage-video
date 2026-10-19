@@ -1,14 +1,17 @@
-import type { PointerEvent } from 'react';
-import type { Clip, MediaInfo } from '../../core/types';
+import type { CSSProperties } from 'react';
+import type { Clip, Project } from '../../core/types';
 import { getMediaSource } from '../../store/mediaRegistry';
 import { useTrimHandle } from '../cut/useTrimHandle';
+import { useClipDrag } from './useClipDrag';
 
 interface ClipViewProps {
+  project: Project;
   clip: Clip;
-  media: MediaInfo;
   left: number;
   width: number;
   selected: boolean;
+  /** Clip en cours de déplacement : affiché en transparence à sa place d'origine. */
+  dragging: boolean;
   onSelect: (clipId: string) => void;
 }
 
@@ -22,35 +25,65 @@ function TrimHandle({ clipId, edge }: { clipId: string; edge: 'start' | 'end' })
         edge === 'start' ? 'left-0 rounded-l-lg' : 'right-0 rounded-r-lg'
       }`}
     >
-      <span className="h-6 w-0.5 rounded bg-white" />
+      <span className="h-1/2 w-0.5 rounded bg-white" />
     </div>
   );
 }
 
-export function ClipView({ clip, media, left, width, selected, onSelect }: ClipViewProps) {
-  const thumbnail = getMediaSource(media.id)?.thumbnail;
-  const stop = (e: PointerEvent) => e.stopPropagation();
+/** Apparence d'un clip selon son type : miniatures, texte, emoji ou nom du fichier audio. */
+export function clipAppearance(project: Project, clip: Clip): { label: string; style: CSSProperties; className: string } {
+  switch (clip.type) {
+    case 'media': {
+      const media = project.media[clip.mediaId];
+      if (media?.kind === 'audio') return { label: `♪ ${media.name}`, style: {}, className: 'bg-emerald-100 text-emerald-900' };
+      const thumbnail = media ? getMediaSource(media.id)?.thumbnail : null;
+      return {
+        label: '',
+        className: 'bg-neutral-300',
+        style: thumbnail ? { backgroundImage: `url(${thumbnail})`, backgroundSize: 'auto 100%', backgroundRepeat: 'repeat-x' } : {},
+      };
+    }
+    case 'text':
+      return { label: `T  ${clip.text.replace(/\n/g, ' ')}`, style: {}, className: 'bg-amber-100 text-amber-950' };
+    case 'sticker': {
+      if (clip.source.kind === 'emoji') return { label: clip.source.emoji, style: {}, className: 'bg-pink-100 text-pink-950' };
+      const thumbnail = getMediaSource(clip.source.mediaId)?.thumbnail;
+      return {
+        label: '',
+        className: 'bg-pink-100',
+        style: thumbnail ? { backgroundImage: `url(${thumbnail})`, backgroundSize: 'auto 100%', backgroundRepeat: 'repeat-x' } : {},
+      };
+    }
+  }
+}
+
+export function ClipView({ project, clip, left, width, selected, dragging, onSelect }: ClipViewProps) {
+  const drag = useClipDrag(clip.id);
+  const look = clipAppearance(project, clip);
 
   return (
     <div
-      className={`absolute inset-y-1 overflow-hidden rounded-lg bg-neutral-300 ${
-        selected ? 'ring-2 ring-accent' : 'ring-1 ring-white'
-      }`}
-      style={{
-        left,
-        width: Math.max(2, width),
-        backgroundImage: thumbnail ? `url(${thumbnail})` : undefined,
-        backgroundSize: 'auto 100%',
-        backgroundRepeat: 'repeat-x',
+      {...drag}
+      onPointerDown={(e) => {
+        e.stopPropagation();
+        drag.onPointerDown(e);
       }}
-      onPointerDown={stop}
       onClick={(e) => {
         e.stopPropagation();
         onSelect(clip.id);
       }}
-      title={media.name}
+      onContextMenu={(e) => e.preventDefault()}
+      className={`absolute inset-y-1 overflow-hidden rounded-lg select-none [-webkit-touch-callout:none] ${look.className} ${
+        selected ? 'ring-2 ring-accent' : 'ring-1 ring-white'
+      } ${dragging ? 'opacity-40' : ''}`}
+      style={{ left, width: Math.max(2, width), ...look.style }}
     >
-      <span className="absolute bottom-1 left-5 rounded bg-black/55 px-1.5 text-[10px] font-medium text-white">
+      {look.label && (
+        <span className="pointer-events-none absolute inset-y-0 left-5 right-5 flex items-center truncate text-xs font-medium whitespace-nowrap">
+          {look.label}
+        </span>
+      )}
+      <span className="pointer-events-none absolute right-5 bottom-0.5 rounded bg-black/55 px-1 text-[10px] font-medium text-white">
         {(clip.duration / 1000).toFixed(1)} s
       </span>
       {selected && (

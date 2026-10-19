@@ -1,13 +1,16 @@
-import { clipEnd, sourceTimeAt } from '../../core/clip';
-import { getMainTrack, projectDuration } from '../../core/project';
+import { clipGainAt } from '../../core/audio';
+import { clipMediaId, sourceTimeAt } from '../../core/clip';
+import { projectDuration } from '../../core/project';
 import { findClipAt } from '../../core/track';
-import type { Clip, MediaInfo, Ms, Project } from '../../core/types';
+import type { MediaClip, MediaInfo, Ms, Project, Track } from '../../core/types';
 import { getMediaSource } from '../../store/mediaRegistry';
-import { drawFrame } from '../render';
+import { loadFonts } from '../fonts';
+import { createVideoElement, primeVideo } from '../mediaElement';
+import { drawFrame, visibleClips } from '../render';
 
-/** Écart toléré entre l'horloge et la vidéo avant de forcer un repositionnement (s). */
+/** Écart toléré entre l'horloge et un média avant de forcer un repositionnement (s). */
 const RESYNC_THRESHOLD_S = 0.3;
-/** Délai avant la fin d'un clip pour préparer la vidéo suivante (ms). */
+/** Délai avant le début d'un clip pour préparer son média (ms). */
 const PRELOAD_MS = 1000;
 
 interface PlayerCallbacks {
@@ -15,14 +18,22 @@ interface PlayerCallbacks {
   onEnded: () => void;
 }
 
+interface ActiveMedia {
+  track: Track;
+  clip: MediaClip;
+  media: MediaInfo;
+}
+
 /**
- * Lecteur de l'aperçu : compose le projet sur le canvas et synchronise les éléments vidéo
- * (qui portent aussi le son) avec le temps de la timeline.
+ * Lecteur de l'aperçu : compose le projet sur le canvas et synchronise les éléments vidéo et audio
+ * avec le temps de la timeline. Le son passe par la Web Audio API (volumes jusqu'à 200 %).
  */
 export class PreviewPlayer {
   private readonly ctx: CanvasRenderingContext2D;
-  private readonly videos = new Map<string, HTMLVideoElement>();
+  private readonly players = new Map<string, HTMLMediaElement>();
   private readonly images = new Map<string, HTMLImageElement>();
+  private readonly gains = new Map<string, GainNode>();
+  private audio: AudioContext | null = null;
   private project: Project;
   private time: Ms = 0;
   private playing = false;
@@ -41,6 +52,8 @@ export class PreviewPlayer {
     if (!ctx) throw new Error('Canvas 2D indisponible.');
     this.ctx = ctx;
     this.project = project;
+    void loadFonts().then(this.markDirty);
+    document.fonts.addEventListener('loadingdone', this.markDirty);
     this.frame = requestAnimationFrame(this.tick);
   }
 
@@ -69,6 +82,7 @@ export class PreviewPlayer {
   /** À appeler depuis un geste utilisateur (politique de lecture automatique des navigateurs). */
   play(): void {
     if (this.playing) return;
+    this.ensureAudioGraph();
     if (this.time >= projectDuration(this.project)) this.time = 0;
     this.playing = true;
     this.anchorTime = this.time;
@@ -79,7 +93,7 @@ export class PreviewPlayer {
   pause(): void {
     if (!this.playing) return;
     this.playing = false;
-    for (const video of this.videos.values()) video.pause();
+    for (const player of this.players.values()) player.pause();
     this.dirty = true;
   }
 
@@ -93,32 +107,65 @@ export class PreviewPlayer {
 
   destroy(): void {
     cancelAnimationFrame(this.frame);
-    for (const video of this.videos.values()) {
-      video.pause();
-      video.removeAttribute('src');
-      video.load();
+    document.fonts.removeEventListener('loadingdone', this.markDirty);
+    for (const player of this.players.values()) {
+      player.pause();
+      player.removeAttribute('src');
+      player.load();
     }
-    this.videos.clear();
+    this.players.clear();
     this.images.clear();
+    this.gains.clear();
+    void this.audio?.close();
   }
 
   private readonly markDirty = () => {
     this.dirty = true;
   };
 
-  private video(media: MediaInfo): HTMLVideoElement | null {
-    const existing = this.videos.get(media.id);
+  /** Crée le contexte audio (dans le geste de lecture) et y raccorde les éléments existants. */
+  private ensureAudioGraph(): void {
+    // iPhone : sans cela, le mode silencieux coupe le son passé par la Web Audio API.
+    const session = (navigator as Navigator & { audioSession?: { type: string } }).audioSession;
+    if (session) session.type = 'playback';
+    if (!this.audio) {
+      this.audio = new AudioContext();
+      for (const [mediaId, player] of this.players) this.connect(mediaId, player);
+    }
+    if (this.audio.state === 'suspended') void this.audio.resume();
+  }
+
+  private connect(mediaId: string, player: HTMLMediaElement): void {
+    if (!this.audio || this.gains.has(mediaId)) return;
+    const gain = this.audio.createGain();
+    this.audio.createMediaElementSource(player).connect(gain).connect(this.audio.destination);
+    this.gains.set(mediaId, gain);
+  }
+
+  private player(media: MediaInfo): HTMLMediaElement | null {
+    const existing = this.players.get(media.id);
     if (existing) return existing;
     const source = getMediaSource(media.id);
     if (!source) return null;
-    const video = document.createElement('video');
-    video.preload = 'auto';
-    video.playsInline = true;
-    video.src = source.url;
-    video.addEventListener('loadeddata', this.markDirty);
-    video.addEventListener('seeked', this.markDirty);
-    this.videos.set(media.id, video);
-    return video;
+    let player: HTMLMediaElement;
+    if (media.kind === 'audio') {
+      player = document.createElement('audio');
+      player.preload = 'auto';
+      player.src = source.url;
+    } else {
+      const video = createVideoElement(source.url, false);
+      // iPhone : sans lecture préalable, la vidéo n'a aucune image à dessiner à l'arrêt.
+      void primeVideo(video, () => !this.playing).then(() => {
+        if (!this.playing) this.syncPaused();
+        this.dirty = true;
+      });
+      player = video;
+    }
+    player.addEventListener('loadeddata', this.markDirty);
+    player.addEventListener('seeked', this.markDirty);
+    this.players.set(media.id, player);
+    this.connect(media.id, player);
+    return player;
   }
 
   private image(media: MediaInfo): HTMLImageElement | null {
@@ -139,51 +186,53 @@ export class PreviewPlayer {
     return duration > 0 ? Math.min(this.time, duration - 1) : this.time;
   }
 
-  private activeClip(t: Ms): { clip: Clip; media: MediaInfo } | null {
-    const clip = findClipAt(getMainTrack(this.project), t);
-    const media = clip ? this.project.media[clip.mediaId] : undefined;
-    return clip && media ? { clip, media } : null;
+  private mediaClipOf(track: Track, t: Ms): ActiveMedia | null {
+    const clip = findClipAt(track, t);
+    if (!clip || clip.type !== 'media') return null;
+    const media = this.project.media[clip.mediaId];
+    return media && media.kind !== 'image' ? { track, clip, media } : null;
   }
 
-  private pauseOthers(keep: HTMLVideoElement | null): void {
-    for (const video of this.videos.values()) {
-      if (video !== keep && !video.paused) video.pause();
+  /** Clips vidéo et audio en cours au temps `t`, piste principale en premier. */
+  private activeMedia(t: Ms): ActiveMedia[] {
+    return this.project.tracks.map((track) => this.mediaClipOf(track, t)).filter((a): a is ActiveMedia => a !== null);
+  }
+
+  /** À l'arrêt : positionne les vidéos visibles sur la bonne image. */
+  private syncPaused(): void {
+    for (const player of this.players.values()) if (!player.paused) player.pause();
+    const t = this.displayTime();
+    for (const active of this.activeMedia(t)) {
+      if (active.media.kind !== 'video') continue;
+      const player = this.player(active.media);
+      const target = sourceTimeAt(active.clip, t) / 1000;
+      if (player && Math.abs(player.currentTime - target) > 0.001) player.currentTime = target;
     }
   }
 
-  /** À l'arrêt : positionne la vidéo du clip courant sur la bonne image. */
-  private syncPaused(): void {
-    const t = this.displayTime();
-    const active = this.activeClip(t);
-    this.pauseOthers(null);
-    if (!active || active.media.kind !== 'video') return;
-    const video = this.video(active.media);
-    if (!video) return;
-    const target = sourceTimeAt(active.clip, t) / 1000;
-    if (Math.abs(video.currentTime - target) > 0.001) video.currentTime = target;
-  }
-
   private syncPlaying(t: Ms): void {
-    const active = this.activeClip(t);
-    const video = active?.media.kind === 'video' ? this.video(active.media) : null;
-    this.pauseOthers(video);
-    if (!active || !video) return;
+    const used = new Set<HTMLMediaElement>();
+    for (const { track, clip, media } of this.activeMedia(t)) {
+      const player = this.player(media);
+      if (!player || used.has(player)) continue;
+      used.add(player);
+      const target = sourceTimeAt(clip, t) / 1000;
+      if (Math.abs(player.currentTime - target) > RESYNC_THRESHOLD_S) player.currentTime = target;
+      const gain = clipGainAt(clip, track.volume, t);
+      const node = this.gains.get(media.id);
+      if (node) node.gain.value = gain;
+      else player.volume = Math.min(1, gain);
+      if (player.paused) void player.play().catch(() => undefined);
+    }
+    for (const player of this.players.values()) if (!used.has(player) && !player.paused) player.pause();
 
-    const target = sourceTimeAt(active.clip, t) / 1000;
-    if (Math.abs(video.currentTime - target) > RESYNC_THRESHOLD_S) video.currentTime = target;
-    if (video.paused) void video.play().catch(() => undefined);
-
-    // Prépare la vidéo du clip suivant pour un enchaînement sans attente.
-    const end = clipEnd(active.clip);
-    if (end - t < PRELOAD_MS) {
-      const next = this.activeClip(end);
-      if (next && next.media.kind === 'video') {
-        const nextVideo = this.video(next.media);
-        const nextTarget = next.clip.inPoint / 1000;
-        if (nextVideo && nextVideo !== video && Math.abs(nextVideo.currentTime - nextTarget) > 0.05) {
-          nextVideo.currentTime = nextTarget;
-        }
-      }
+    // Prépare les médias des clips qui commencent bientôt, pour un enchaînement sans attente.
+    for (const track of this.project.tracks) {
+      const next = this.mediaClipOf(track, t + PRELOAD_MS);
+      if (!next || next.clip.start <= t) continue;
+      const player = this.player(next.media);
+      const target = next.clip.inPoint / 1000;
+      if (player && !used.has(player) && Math.abs(player.currentTime - target) > 0.05) player.currentTime = target;
     }
   }
 
@@ -199,17 +248,15 @@ export class PreviewPlayer {
   private advance(now: number): void {
     let t = this.anchorTime + (now - this.anchorNow);
 
-    // La vidéo en cours sert d'horloge maître quand elle joue normalement (évite la dérive son/image).
-    const active = this.activeClip(this.time);
-    if (active?.media.kind === 'video') {
-      const video = this.videos.get(active.media.id);
-      if (video && !video.paused && !video.seeking && video.readyState >= 3) {
-        const videoTime = active.clip.start + video.currentTime * 1000 - active.clip.inPoint;
-        if (Math.abs(videoTime - t) < 500) {
-          t = videoTime;
-          this.anchorTime = t;
-          this.anchorNow = now;
-        }
+    // Le premier média en cours sert d'horloge maître quand il joue normalement (évite la dérive son/image).
+    const master = this.activeMedia(this.time)[0];
+    const player = master ? this.players.get(master.media.id) : undefined;
+    if (master && player && !player.paused && !player.seeking && player.readyState >= 3) {
+      const mediaTime = master.clip.start + player.currentTime * 1000 - master.clip.inPoint;
+      if (Math.abs(mediaTime - t) < 500) {
+        t = mediaTime;
+        this.anchorTime = t;
+        this.anchorNow = now;
       }
     }
 
@@ -232,18 +279,21 @@ export class PreviewPlayer {
       const img = this.image(media);
       return img?.complete && img.naturalWidth > 0 ? img : null;
     }
-    const video = this.video(media);
-    return video && video.readyState >= 2 && !video.seeking ? video : null;
+    const player = this.player(media);
+    return player instanceof HTMLVideoElement && player.readyState >= 2 && !player.seeking ? player : null;
   }
 
   private draw(): void {
     const { ctx, canvas, project } = this;
-    // Source pas encore prête (chargement, repositionnement) : on garde l'image précédente
-    // plutôt qu'un flash noir ; l'événement `seeked`/`load` redemandera un dessin.
     const t = this.displayTime();
-    const active = this.activeClip(t);
-    if (active && !this.readySource(active.media)) return;
+    // Une source pas encore prête (chargement, repositionnement) : on garde l'image précédente
+    // plutôt qu'un flash ; les événements `seeked` / `load` redemandent un dessin.
+    for (const { clip } of visibleClips(project, t)) {
+      const mediaId = clipMediaId(clip);
+      const media = mediaId ? project.media[mediaId] : undefined;
+      if (media && media.kind !== 'audio' && !this.readySource(media)) return;
+    }
     ctx.setTransform(canvas.width / project.width, 0, 0, canvas.height / project.height, 0, 0);
-    drawFrame(ctx, project, t, (_clip, media) => this.readySource(media));
+    drawFrame(ctx, project, t, (media) => this.readySource(media));
   }
 }

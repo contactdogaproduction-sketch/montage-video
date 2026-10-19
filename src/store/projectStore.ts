@@ -15,6 +15,11 @@ interface ProjectState {
   /** Mise à jour pendant le geste, calculée à partir de l'état du début du geste. */
   updateGesture: (update: (base: Project) => Project) => void;
   endGesture: () => void;
+  /**
+   * Réglage à valeur absolue (curseur, champ, couleur) : pendant un geste, mise à jour du geste ;
+   * sinon, une entrée d'historique.
+   */
+  apply: (update: (project: Project) => Project) => void;
   undo: () => void;
   redo: () => void;
 }
@@ -45,6 +50,11 @@ export const useProjectStore = create<ProjectState>()((set, get) => ({
     if (!gestureBase) return;
     // Une seule entrée : de l'état du début du geste à l'état final.
     set({ gestureBase: null, history: pushState({ ...history, present: gestureBase }, history.present) });
+  },
+
+  apply: (update) => {
+    if (get().gestureBase) get().updateGesture(update);
+    else get().commit(update);
   },
 
   undo: () => {

@@ -8,7 +8,7 @@ export function CutTools() {
   const project = useProject();
   const playhead = useEditorStore((s) => s.playhead);
   const selectedClipId = useEditorStore((s) => s.selectedClipId);
-  const canSplit = splittableClipAt(project, playhead) !== undefined;
+  const canSplit = splittableClipAt(project, selectedClipId, playhead) !== undefined;
   const hasSelection = selectedClip(project, selectedClipId) !== undefined;
 
   return (

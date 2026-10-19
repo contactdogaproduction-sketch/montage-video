@@ -2,6 +2,7 @@ import { useEffect, useRef, useState } from 'react';
 import { fitContain } from '../core/geometry';
 import { PreviewPlayer } from '../engine/preview/PreviewPlayer';
 import { attachPlayer } from '../engine/preview/playback';
+import { SelectionOverlay } from '../features/transform/SelectionOverlay';
 import { useEditorStore } from '../store/editorStore';
 import { getProject, useProject, useProjectStore } from '../store/projectStore';
 
@@ -59,12 +60,15 @@ export function PreviewPanel() {
 
   return (
     <div ref={containerRef} className="flex min-h-0 flex-1 items-center justify-center p-3">
-      <canvas
-        ref={canvasRef}
-        className="rounded-xl bg-black shadow-sm"
-        style={{ width: size.width, height: size.height }}
-        aria-label="Aperçu de la vidéo"
-      />
+      <div className="relative" style={{ width: size.width, height: size.height }}>
+        <canvas
+          ref={canvasRef}
+          className="block rounded-xl bg-black shadow-sm"
+          style={{ width: size.width, height: size.height }}
+          aria-label="Aperçu de la vidéo"
+        />
+        <SelectionOverlay width={size.width} />
+      </div>
     </div>
   );
 }

@@ -1,26 +1,22 @@
-import { sourceTimeAt } from '../../core/clip';
-import { getMainTrack } from '../../core/project';
-import { findClipAt } from '../../core/track';
+import { clipMediaId, sourceTimeAt } from '../../core/clip';
 import type { MediaInfo, Ms, Project } from '../../core/types';
 import { getMediaSource } from '../../store/mediaRegistry';
-import { drawFrame } from '../render';
+import { createVideoElement, primeVideo, seekVideo, waitForEvent } from '../mediaElement';
+import { drawFrame, visibleClips } from '../render';
 
-function once(target: EventTarget, event: string): Promise<void> {
-  return new Promise((resolve, reject) => {
-    const ok = () => {
-      target.removeEventListener('error', fail);
-      resolve();
-    };
-    const fail = () => {
-      target.removeEventListener(event, ok);
-      reject(new Error('Lecture du média impossible pendant l’export.'));
-    };
-    target.addEventListener(event, ok, { once: true });
-    target.addEventListener('error', fail, { once: true });
-  });
+/** Délai maximal de chargement d'un média ou d'un positionnement pendant l'export. */
+const MEDIA_TIMEOUT_MS = 20_000;
+
+/** Attend un événement ; un échec devient un message compréhensible dans la fenêtre d'export. */
+async function expect(target: EventTarget, event: string, name: string): Promise<void> {
+  try {
+    await waitForEvent(target, event, MEDIA_TIMEOUT_MS);
+  } catch {
+    throw new Error(`Lecture de « ${name} » impossible pendant l’export.`);
+  }
 }
 
-/** Rendu image par image pour l'export : chaque vidéo est positionnée exactement avant le dessin. */
+/** Rendu image par image pour l'export : chaque vidéo visible est positionnée exactement avant le dessin. */
 export class FrameSource {
   private readonly videos = new Map<string, HTMLVideoElement>();
   private readonly images = new Map<string, HTMLImageElement>();
@@ -28,19 +24,27 @@ export class FrameSource {
   constructor(private readonly project: Project) {}
 
   async draw(ctx: CanvasRenderingContext2D, t: Ms): Promise<void> {
-    const clip = findClipAt(getMainTrack(this.project), t);
-    const media = clip ? this.project.media[clip.mediaId] : undefined;
-    if (clip && media?.kind === 'video') {
-      const video = await this.video(media);
-      await this.seek(video, sourceTimeAt(clip, t) / 1000);
-    } else if (media?.kind === 'image') {
-      await this.image(media);
+    for (const { clip } of visibleClips(this.project, t)) {
+      const mediaId = clipMediaId(clip);
+      const media = mediaId ? this.project.media[mediaId] : undefined;
+      if (!media) continue;
+      if (media.kind === 'video' && clip.type === 'media') {
+        const video = await this.video(media);
+        try {
+          await seekVideo(video, sourceTimeAt(clip, t) / 1000, MEDIA_TIMEOUT_MS);
+        } catch {
+          throw new Error(`Lecture de « ${media.name} » impossible pendant l’export.`);
+        }
+      } else if (media.kind === 'image') {
+        await this.image(media);
+      }
     }
-    drawFrame(ctx, this.project, t, (_c, m) => (m.kind === 'video' ? this.videos.get(m.id) : this.images.get(m.id)) ?? null);
+    drawFrame(ctx, this.project, t, (m) => (m.kind === 'video' ? this.videos.get(m.id) : this.images.get(m.id)) ?? null);
   }
 
   dispose(): void {
     for (const video of this.videos.values()) {
+      video.pause();
       video.removeAttribute('src');
       video.load();
     }
@@ -53,13 +57,11 @@ export class FrameSource {
     if (existing) return existing;
     const source = getMediaSource(media.id);
     if (!source) throw new Error(`Fichier introuvable : ${media.name}`);
-    const video = document.createElement('video');
-    video.muted = true;
-    video.playsInline = true;
-    video.preload = 'auto';
-    const loaded = once(video, 'loadeddata');
-    video.src = source.url;
-    await loaded;
+    const video = createVideoElement(source.url, true);
+    if (video.readyState < 1) await expect(video, 'loadedmetadata', media.name);
+    // iPhone : une lecture muette brève est nécessaire pour que les images soient disponibles.
+    await primeVideo(video);
+    if (video.readyState < 2) await expect(video, 'loadeddata', media.name);
     this.videos.set(media.id, video);
     return video;
   }
@@ -70,18 +72,10 @@ export class FrameSource {
     const source = getMediaSource(media.id);
     if (!source) throw new Error(`Fichier introuvable : ${media.name}`);
     const img = new Image();
-    const loaded = once(img, 'load');
+    const loaded = expect(img, 'load', media.name);
     img.src = source.url;
     await loaded;
     this.images.set(media.id, img);
     return img;
-  }
-
-  private async seek(video: HTMLVideoElement, seconds: number): Promise<void> {
-    const target = Math.min(Math.max(0, seconds), Math.max(0, video.duration - 0.001));
-    if (Math.abs(video.currentTime - target) < 0.0001 && video.readyState >= 2) return;
-    const seeked = once(video, 'seeked');
-    video.currentTime = target;
-    await seeked;
   }
 }

@@ -3,6 +3,7 @@ import coreURL from '@ffmpeg/core?url';
 import wasmURL from '@ffmpeg/core/wasm?url';
 import { frameCount } from '../../core/project';
 import type { Project } from '../../core/types';
+import { loadFonts } from '../fonts';
 import { mixProjectAudio } from './audioMix';
 import { FrameSource } from './FrameSource';
 import { encodeWav } from './wav';
@@ -98,7 +99,7 @@ export async function exportProject(project: Project, { onProgress, signal }: Ex
   try {
     signal.throwIfAborted();
     onProgress({ ratio: 0, stage: 'prepare' });
-    await loadEncoder(ffmpeg);
+    await Promise.all([loadEncoder(ffmpeg), loadFonts()]);
 
     signal.throwIfAborted();
     onProgress({ ratio: 0.02, stage: 'audio' });

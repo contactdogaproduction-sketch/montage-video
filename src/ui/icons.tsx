@@ -95,6 +95,40 @@ export const DownloadIcon = (p: IconProps) => (
   </Icon>
 );
 
+export const LayersIcon = (p: IconProps) => (
+  <Icon {...p}>
+    <path d="m12 2 10 5-10 5L2 7z" />
+    <path d="m2 17 10 5 10-5M2 12l10 5 10-5" />
+  </Icon>
+);
+
+export const TextIcon = (p: IconProps) => (
+  <Icon {...p}>
+    <path d="M4 7V4h16v3M9 20h6M12 4v16" />
+  </Icon>
+);
+
+export const SmileIcon = (p: IconProps) => (
+  <Icon {...p}>
+    <circle cx="12" cy="12" r="10" />
+    <path d="M8 14s1.5 2 4 2 4-2 4-2M9 9h.01M15 9h.01" />
+  </Icon>
+);
+
+export const MusicIcon = (p: IconProps) => (
+  <Icon {...p}>
+    <path d="M9 18V5l12-2v13" />
+    <circle cx="6" cy="18" r="3" />
+    <circle cx="18" cy="16" r="3" />
+  </Icon>
+);
+
+export const SlidersIcon = (p: IconProps) => (
+  <Icon {...p}>
+    <path d="M4 21v-7M4 10V3M12 21v-9M12 8V3M20 21v-5M20 12V3M1 14h6M9 8h6M17 16h6" />
+  </Icon>
+);
+
 export const CloseIcon = (p: IconProps) => (
   <Icon {...p}>
     <path d="M18 6 6 18M6 6l12 12" />

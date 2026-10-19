@@ -1,9 +1,19 @@
-import { useRef, useState, type ChangeEvent } from 'react';
+import { useRef, useState, type ChangeEvent, type ReactNode } from 'react';
 import { PlusIcon } from '../../ui/icons';
 import { ToolButton } from '../../ui/ToolButton';
-import { importFiles } from './importFiles';
+import { importFiles, type ImportDestination } from './importFiles';
+import { ACCEPT_ALL } from './readMedia';
 
-export function ImportButton() {
+interface FilePickerButtonProps {
+  icon: ReactNode;
+  label: string;
+  title: string;
+  accept: string;
+  destination: ImportDestination;
+}
+
+/** Bouton d'outil qui ouvre le sélecteur de fichiers de l'appareil puis importe la sélection. */
+export function FilePickerButton({ icon, label, title, accept, destination }: FilePickerButtonProps) {
   const inputRef = useRef<HTMLInputElement>(null);
   const [busy, setBusy] = useState(false);
 
@@ -13,7 +23,7 @@ export function ImportButton() {
     if (files.length === 0) return;
     setBusy(true);
     try {
-      await importFiles(files);
+      await importFiles(files, destination);
     } finally {
       setBusy(false);
     }
@@ -21,14 +31,21 @@ export function ImportButton() {
 
   return (
     <>
-      <ToolButton
-        icon={<PlusIcon />}
-        label={busy ? 'Import…' : 'Importer'}
-        disabled={busy}
-        onClick={() => inputRef.current?.click()}
-        title="Importer des vidéos et des photos"
-      />
-      <input ref={inputRef} type="file" accept="video/*,image/*" multiple hidden onChange={onChange} />
+      <ToolButton icon={icon} label={busy ? 'Import…' : label} disabled={busy} onClick={() => inputRef.current?.click()} title={title} />
+      <input ref={inputRef} type="file" accept={accept} multiple hidden onChange={onChange} />
     </>
+  );
+}
+
+/** Import général : vidéos et photos à la suite sur la piste principale, audio au curseur. */
+export function ImportButton() {
+  return (
+    <FilePickerButton
+      icon={<PlusIcon />}
+      label="Importer"
+      title="Importer des vidéos, photos et fichiers audio"
+      accept={ACCEPT_ALL}
+      destination="main"
+    />
   );
 }

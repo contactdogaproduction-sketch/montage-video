@@ -25,7 +25,9 @@ src/
                import, timeline, cut, text, stickers, audio, transitions,
                keyframes, subtitles, speed, format, export
   ui/          composants d'interface partagés
-  app/         assemblage : mise en page, aperçu, barre de lecture, raccourcis clavier
+  app/         assemblage : mise en page, aperçu, barre d'outils, panneau de réglages, raccourcis
+               (features/ contient aussi overlay/ pour l'incrustation et transform/ pour la
+               manipulation directe dans l'aperçu)
 ```
 Règles d'architecture :
 - `core/` : fonctions pures, sans React, sans DOM, sans Zustand. Entrée → sortie, aucun effet de bord.
@@ -110,11 +112,24 @@ Règles d'architecture :
   concaténation et multiplexage avec la piste audio mixée via `OfflineAudioContext`.
 - **Fichiers de FFmpeg.wasm** (core + wasm) servis localement depuis le projet, pas depuis un
   CDN (compatibilité COEP et fonctionnement hors ligne de la PWA).
-- **Médias** en étape 1 : conservés en mémoire (object URLs) ; persistance IndexedDB en étape 4.
-  L'import audio arrive à l'étape 2 avec les pistes audio (pas de média importé inutilisable).
-- **Piste principale** : clips toujours accolés depuis 0 (`normalizeTrack`) ; un trim décale la suite.
-- **Aperçu** : un `<video>` par média (porte aussi le son), la vidéo active sert d'horloge maître
-  pendant la lecture ; dessin via `engine/render.ts`, partagé avec l'export.
+- **Médias** : conservés en mémoire (object URLs, `store/mediaRegistry.ts`) ; persistance IndexedDB en étape 4.
+- **Pistes** (`Project.tracks`, de la plus basse à la plus haute) : `main` (clips accolés depuis 0,
+  un trim décale la suite), puis pistes libres `overlay`, `text`, `sticker`, `audio` (clips placés
+  librement, sans chevauchement). Une piste libre vide est supprimée. Déposer sur une place prise
+  crée une nouvelle piste au-dessus (`moveClip`, `placeClip`).
+- **Clips** : union `MediaClip | TextClip | StickerClip`. Tout élément visuel a un `Transform`
+  (centre x/y en fraction du cadre, échelle, rotation en degrés, opacité), base des keyframes (étape 3).
+- **Glisser-déposer** : souris = glisser direct ; doigt = appui long (400 ms) pour ne pas gêner le
+  défilement. Aimantation (10 px écran) sur bords des clips, curseur et 0.
+- **Polices** : Montserrat 800, Bebas Neue, Pacifico via `@fontsource` (servies localement).
+- **Audio** : volumes 0–200 % (piste × clip) et fondus ; aperçu via Web Audio API (un `GainNode`
+  par élément média, contexte créé dans le geste de lecture), export via automation de gain
+  dans `OfflineAudioContext`.
+- **Aperçu** : un élément `<video>`/`<audio>` par média ; le premier média en cours sert d'horloge
+  maître ; dessin via `engine/render.ts`, partagé avec l'export.
+- **Interface** : la barre d'outils met les outils du clip sélectionné en tête ; les réglages
+  s'ouvrent à la demande en feuille sur téléphone (« Réglages ») et à droite sur grand écran.
+  Les curseurs et champs regroupent leurs modifications en une étape d'annulation (`ui/controls.tsx`).
 - **Export** : FFmpeg.wasm *mono-thread* (`@ffmpeg/core`), x264 `superfast` CRF 20, segments de
   90 images, AAC 192 kb/s. Images encodées en JPEG via `toDataURL` (synchrone) : `toBlob` /
   `convertToBlob` sont différés jusqu'à 1–3 s par image dans certains navigateurs.
