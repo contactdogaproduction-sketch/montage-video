@@ -1,9 +1,11 @@
 import { CENTERED, clipEnd, setClipSpeed } from './clip';
 import {
+  appendClips,
   findClip,
   hasRoom,
   insertClip,
   insertInMainAt,
+  isFreeTrack,
   normalizeTrack,
   removeClip,
   replaceClip,
@@ -17,7 +19,12 @@ import type { AspectFormat, Clip, MediaInfo, Ms, Project, Track, TrackKind } fro
 export const MAIN_TRACK_ID = 'main';
 
 export function createTrack(id: string, kind: TrackKind): Track {
-  return { id, kind, clips: [], volume: 1 };
+  return { id, kind, clips: [], volume: 1, magnetic: kind === 'main' };
+}
+
+/** Active ou désactive l'aimant de la piste principale (réactivé : les espaces sont refermés). */
+export function setMainMagnet(project: Project, magnetic: boolean): Project {
+  return replaceTrack(project, normalizeTrack({ ...getMainTrack(project), magnetic }));
 }
 
 export interface FormatDefinition {
@@ -194,8 +201,10 @@ export function duplicateClipInProject(project: Project, clipId: string, newId: 
   if (!location) return null;
   const { track, clip } = location;
   const copy: Clip = { ...clip, id: newId, start: clipEnd(clip) };
-  if (track.kind === 'main') return replaceTrack(project, insertInMainAt(track, copy, copy.start));
+  if (!isFreeTrack(track)) return replaceTrack(project, insertInMainAt(track, copy, copy.start));
   if (hasRoom(track, copy.start, copy.duration)) return replaceTrack(project, insertClip(track, copy));
+  // Piste principale sans aimant : la copie va en fin de piste.
+  if (track.kind === 'main') return replaceTrack(project, appendClips(track, [copy]));
   return placeClip(project, copy, newTrackId, track.id);
 }
 
@@ -208,9 +217,11 @@ export function changeClipSpeed(project: Project, clipId: string, speed: number,
   if (!location || location.clip.type !== 'media') return project;
   const changed = setClipSpeed(location.clip, speed);
   const { track } = location;
-  if (track.kind === 'main' || hasRoom(track, changed.start, changed.duration, clipId)) {
+  if (!isFreeTrack(track) || hasRoom(track, changed.start, changed.duration, clipId)) {
     return replaceTrack(project, replaceClip(track, changed));
   }
+  // Piste principale sans aimant : pas de place pour le clip ralenti, rien ne change.
+  if (track.kind === 'main') return project;
   const without = replaceTrack(project, removeClip(track, clipId));
   return pruneEmptyTracks(placeClip(without, changed, spareTrackId, track.id));
 }
@@ -246,17 +257,21 @@ export function moveClip(project: Project, clipId: string, target: MoveTarget, s
   const destination = getTrack(without, target.trackId);
   if (!destination || !canHost(project, destination, clip)) return null;
 
-  if (destination.kind === 'main') {
+  if (destination.kind === 'main' && destination.magnetic) {
     // Une incrustation qui rejoint la piste principale reprend le placement plein cadre.
     const entering: Clip = clip.type === 'media' && location.track.kind !== 'main' ? { ...clip, transform: CENTERED, keyframes: [] } : clip;
     const track = insertInMainAt(destination, entering, position + clip.duration / 2);
     return pruneEmptyTracks(replaceTrack(without, track));
   }
 
-  const moved: Clip = { ...clip, start: position };
+  const moved: Clip = clip.type === 'media' && destination.kind === 'main' && location.track.kind !== 'main'
+    ? { ...clip, start: position, transform: CENTERED, keyframes: [] }
+    : { ...clip, start: position };
   if (hasRoom(destination, moved.start, moved.duration)) {
     return pruneEmptyTracks(replaceTrack(without, insertClip(destination, moved)));
   }
+  // Piste principale sans aimant : pas de nouvelle piste principale possible, le dépôt est refusé.
+  if (destination.kind === 'main') return null;
   const kind = trackKindFor(project, clip);
   const track = { ...createTrack(spareTrackId, kind), clips: [moved] };
   return pruneEmptyTracks(addTrackAbove(without, track, destination.id));

@@ -72,6 +72,7 @@ export function createTextClip(id: string, start: Ms, text = 'Votre texte'): Tex
     keyframes: [],
     animationIn: 'none',
     animationOut: 'none',
+    subtitle: false,
   };
 }
 

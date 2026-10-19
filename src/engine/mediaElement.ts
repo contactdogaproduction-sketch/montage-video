@@ -67,3 +67,27 @@ export function createVideoElement(url: string, muted: boolean): HTMLVideoElemen
   video.load();
   return video;
 }
+
+/**
+ * Photographie l'image d'une vidéo à `seconds` (taille d'origine), en JPEG.
+ * `toDataURL` plutôt que `toBlob`, différé de plusieurs secondes dans certains navigateurs.
+ */
+export async function captureVideoFrame(url: string, seconds: number): Promise<Blob> {
+  const video = createVideoElement(url, true);
+  try {
+    if (video.readyState < 1) await waitForEvent(video, 'loadedmetadata', 20_000);
+    await primeVideo(video);
+    await seekVideo(video, seconds, 20_000);
+    const canvas = document.createElement('canvas');
+    canvas.width = video.videoWidth;
+    canvas.height = video.videoHeight;
+    const ctx = canvas.getContext('2d');
+    if (!ctx) throw new Error('Canvas 2D indisponible.');
+    ctx.drawImage(video, 0, 0);
+    return await (await fetch(canvas.toDataURL('image/jpeg', 0.92))).blob();
+  } finally {
+    video.pause();
+    video.removeAttribute('src');
+    video.load();
+  }
+}

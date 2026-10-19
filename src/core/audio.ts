@@ -1,5 +1,5 @@
 import { clipEnd } from './clip';
-import { transitionOverlap } from './transition';
+import { effectiveOverlap } from './transition';
 import type { MediaClip, Ms, Track } from './types';
 
 export interface Fades {
@@ -24,8 +24,8 @@ export function trackFades(track: Track, clip: MediaClip): Fades {
   if (track.kind !== 'main') return fades;
   const index = track.clips.findIndex((c) => c.id === clip.id);
   const previous = track.clips[index - 1];
-  const overlapIn = previous ? transitionOverlap(previous, clip) : 0;
-  const overlapOut = transitionOverlap(clip, track.clips[index + 1]);
+  const overlapIn = previous ? effectiveOverlap(previous, clip) : 0;
+  const overlapOut = effectiveOverlap(clip, track.clips[index + 1]);
   return { fadeIn: Math.max(fades.fadeIn, overlapIn), fadeOut: Math.max(fades.fadeOut, overlapOut) };
 }
 

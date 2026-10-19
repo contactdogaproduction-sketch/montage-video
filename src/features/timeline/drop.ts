@@ -1,4 +1,4 @@
-import { findClipLocation, moveClip, type MoveTarget } from '../../core/project';
+import { findClipLocation, getMainTrack, moveClip, type MoveTarget } from '../../core/project';
 import { snapMove, snapPoints, type SnappedMove } from '../../core/snap';
 import type { Ms, Project } from '../../core/types';
 import { createId } from '../../store/createId';
@@ -38,7 +38,11 @@ export function dropClip(drag: ClipDrag): void {
   const start: Ms = position.start;
   const next = moveClip(project, drag.clipId, target, start, createId());
   if (!next) {
-    notify('Ce clip ne peut pas aller sur cette piste.');
+    notify(
+      target && 'trackId' in target && target.trackId === getMainTrack(project).id
+        ? 'Pas de place à cet endroit de la piste principale (aimant désactivé).'
+        : 'Ce clip ne peut pas aller sur cette piste.',
+    );
     return;
   }
   useProjectStore.getState().commit(() => next);

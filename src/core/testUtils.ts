@@ -35,5 +35,5 @@ export function stickerClip(id: string, over: Partial<StickerClip> = {}): Sticke
 }
 
 export function track(id: string, kind: TrackKind, clips: Track['clips'] = []): Track {
-  return { id, kind, clips, volume: 1 };
+  return { id, kind, clips, volume: 1, magnetic: kind === 'main' };
 }

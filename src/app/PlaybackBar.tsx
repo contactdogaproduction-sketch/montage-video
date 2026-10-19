@@ -1,7 +1,9 @@
+import { useEffect, useRef } from 'react';
 import { projectDuration } from '../core/project';
 import { formatTime } from '../core/time';
 import { togglePlayback } from '../engine/preview/playback';
 import { useEditorStore } from '../store/editorStore';
+import { onPlaybackTime } from '../store/playbackClock';
 import { useProject } from '../store/projectStore';
 import { PauseIcon, PlayIcon } from '../ui/icons';
 
@@ -10,10 +12,20 @@ export function PlaybackBar() {
   const playhead = useEditorStore((s) => s.playhead);
   const playing = useEditorStore((s) => s.playing);
   const duration = projectDuration(project);
+  const timeRef = useRef<HTMLSpanElement>(null);
+
+  // Pendant la lecture, le compteur suit chaque image sans recalculer le composant.
+  useEffect(
+    () =>
+      onPlaybackTime((t) => {
+        if (timeRef.current) timeRef.current.textContent = `${formatTime(t)} / ${formatTime(duration)}`;
+      }),
+    [duration],
+  );
 
   return (
     <div className="flex items-center justify-center gap-4 px-4 pb-1">
-      <span className="flex-1 text-right font-mono whitespace-nowrap text-xs text-neutral-500 tabular-nums">
+      <span ref={timeRef} className="flex-1 text-right font-mono whitespace-nowrap text-xs text-neutral-500 tabular-nums">
         {formatTime(playhead)} / {formatTime(duration)}
       </span>
       <button

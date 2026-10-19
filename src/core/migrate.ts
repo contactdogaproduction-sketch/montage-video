@@ -15,7 +15,7 @@ function migrateClip(raw: Raw): Clip | null {
     case 'media':
       return { volume: 1, fadeIn: 0, fadeOut: 0, inPoint: 0, transition: null, speed: 1, fit: 'contain', ...base } as unknown as Clip;
     case 'text':
-      return { text: '', animationIn: 'none', animationOut: 'none', ...base, style: { ...DEFAULT_STYLE, ...(isObject(raw.style) ? raw.style : {}) } } as unknown as Clip;
+      return { text: '', animationIn: 'none', animationOut: 'none', subtitle: false, ...base, style: { ...DEFAULT_STYLE, ...(isObject(raw.style) ? raw.style : {}) } } as unknown as Clip;
     case 'sticker':
       return isObject(raw.source) ? (base as unknown as Clip) : null;
     default:
@@ -28,7 +28,7 @@ function migrateTrack(raw: Raw): Track {
     .filter(isObject)
     .map(migrateClip)
     .filter((c): c is Clip => c !== null);
-  return { volume: 1, ...raw, clips } as Track;
+  return { volume: 1, magnetic: raw.kind === 'main', ...raw, clips } as Track;
 }
 
 /**

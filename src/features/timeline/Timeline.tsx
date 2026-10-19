@@ -3,12 +3,14 @@ import { clipEnd } from '../../core/clip';
 import { findClipLocation, projectDuration } from '../../core/project';
 import { TRANSITION_LABELS } from '../../core/transition';
 import { useEditorStore } from '../../store/editorStore';
+import { onPlaybackTime } from '../../store/playbackClock';
 import { useProject } from '../../store/projectStore';
 import { ZoomInIcon, ZoomOutIcon } from '../../ui/icons';
 import { ClipView, clipAppearance } from './ClipView';
 import { dragPosition } from './drop';
 import { useDragStore } from './dragStore';
 import { LANE_HEIGHT, TIMELINE_OFFSET as OFFSET, displayTracks } from './layout';
+import { MagnetToggle } from './MagnetToggle';
 import { Ruler } from './Ruler';
 
 const ZOOM_FACTOR = 1.5;
@@ -18,7 +20,6 @@ const RULER_EXTRA_PX = 300;
 export function Timeline() {
   const project = useProject();
   const playhead = useEditorStore((s) => s.playhead);
-  const playing = useEditorStore((s) => s.playing);
   const pxPerSecond = useEditorStore((s) => s.pxPerSecond);
   const selectedClipId = useEditorStore((s) => s.selectedClipId);
   const selectedTransitionId = useEditorStore((s) => s.selectedTransitionId);
@@ -28,6 +29,7 @@ export function Timeline() {
   const scrubbing = useRef(false);
   const pinch = useRef<{ distance: number; zoom: number } | null>(null);
   const previousZoom = useRef(pxPerSecond);
+  const playheadRef = useRef<HTMLDivElement>(null);
 
   const duration = projectDuration(project);
   const tracks = displayTracks(project);
@@ -56,14 +58,24 @@ export function Timeline() {
     el.scrollLeft = toX(playhead) - screenX;
   });
 
-  // Faire défiler la timeline pendant la lecture.
-  useEffect(() => {
-    const el = scrollRef.current;
-    if (!el || !playing) return;
-    if (playheadX < el.scrollLeft || playheadX > el.scrollLeft + el.clientWidth - 24) {
-      el.scrollLeft = playheadX - el.clientWidth * 0.25;
-    }
-  }, [playheadX, playing]);
+  // Position du curseur à l'arrêt (pendant la lecture, c'est l'horloge ci-dessous qui le déplace).
+  useLayoutEffect(() => {
+    if (playheadRef.current && !useEditorStore.getState().playing) playheadRef.current.style.left = `${playheadX}px`;
+  }, [playheadX]);
+
+  // Pendant la lecture : le curseur avance à chaque image et la timeline défile, sans re-rendu de React.
+  useEffect(
+    () =>
+      onPlaybackTime((t) => {
+        const el = scrollRef.current;
+        const line = playheadRef.current;
+        if (!el || !line) return;
+        const x = OFFSET + (t / 1000) * useEditorStore.getState().pxPerSecond;
+        line.style.left = `${x}px`;
+        if (x < el.scrollLeft || x > el.scrollLeft + el.clientWidth - 24) el.scrollLeft = x - el.clientWidth * 0.25;
+      }),
+    [],
+  );
 
   // Ctrl + molette : zoom (écouteur non passif pour bloquer le zoom de la page).
   useEffect(() => {
@@ -123,6 +135,8 @@ export function Timeline() {
   return (
     <section className="flex flex-col border-t border-neutral-200 bg-neutral-50" aria-label="Timeline">
       <div className="flex items-center justify-end gap-1 px-3 pt-1">
+        <MagnetToggle />
+        <span className="flex-1" />
         <button type="button" onClick={() => zoomBy(1 / ZOOM_FACTOR)} className="flex items-center gap-1 rounded-lg px-2 py-1 text-xs text-neutral-600 hover:bg-neutral-200">
           <ZoomOutIcon width={16} height={16} />
           Dézoomer
@@ -198,6 +212,7 @@ export function Timeline() {
                 />
               ))}
               {track.kind === 'main' &&
+                track.magnetic &&
                 track.clips.slice(0, -1).map((clip, i) => {
                   const next = track.clips[i + 1];
                   if (!next) return null;
@@ -235,7 +250,7 @@ export function Timeline() {
             <div className="pointer-events-none absolute top-7 bottom-0 z-30 w-px bg-amber-500" style={{ left: toX(position.snappedTo) }} />
           )}
 
-          <div className="pointer-events-none absolute top-0 bottom-0 z-30 w-0.5 -translate-x-1/2 bg-neutral-900" style={{ left: playheadX }}>
+          <div ref={playheadRef} className="pointer-events-none absolute top-0 bottom-0 z-30 w-0.5 -translate-x-1/2 bg-neutral-900">
             <div className="absolute -top-0.5 left-1/2 h-3 w-3 -translate-x-1/2 rounded-full bg-neutral-900" />
           </div>
         </div>

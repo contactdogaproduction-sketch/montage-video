@@ -1,9 +1,12 @@
 import { AudioButton } from '../features/audio/AudioButton';
 import { FormatButton } from '../features/format/FormatButton';
 import { CutTools } from '../features/cut/CutTools';
+import { FreezeButton } from '../features/freeze/FreezeButton';
 import { ImportButton } from '../features/import/ImportButton';
 import { OverlayButton } from '../features/overlay/OverlayButton';
 import { StickerButton } from '../features/stickers/StickerButton';
+import { SubtitlesButton } from '../features/subtitles/SubtitlesButton';
+import { VoiceOverButton } from '../features/voiceover/VoiceOverButton';
 import { AddTextButton } from '../features/text/AddTextButton';
 import { useEditorStore } from '../store/editorStore';
 import { useProject } from '../store/projectStore';
@@ -28,6 +31,8 @@ export function Toolbar() {
       <AddTextButton />
       <StickerButton />
       <AudioButton />
+      <SubtitlesButton />
+      <VoiceOverButton />
       <FormatButton />
     </>
   );
@@ -39,6 +44,7 @@ export function Toolbar() {
         </span>
       )}
       <CutTools />
+      <FreezeButton />
     </>
   );
   return (

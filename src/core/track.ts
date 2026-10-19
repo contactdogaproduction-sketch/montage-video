@@ -2,9 +2,9 @@ import { clipEnd, splitClip, trimEnd, trimStart } from './clip';
 import { transitionOverlap } from './transition';
 import type { Clip, Ms, Track } from './types';
 
-/** Piste où les clips sont placés librement (toutes sauf la principale). */
+/** Piste où les clips sont placés librement (toutes sauf la principale aimantée). */
 export function isFreeTrack(track: Track): boolean {
-  return track.kind !== 'main';
+  return !(track.kind === 'main' && track.magnetic);
 }
 
 /**
@@ -25,10 +25,15 @@ function withoutTransition(clip: Clip): Clip {
   return clip.type === 'media' && clip.transition ? { ...clip, transition: null } : clip;
 }
 
-/** Applique les invariants de la piste : principale accolée sans trou, autres triées par début. */
+/**
+ * Applique les invariants de la piste : principale aimantée accolée sans trou ; principale libre
+ * triée (les transitions restent, actives seulement entre deux clips qui se touchent) ;
+ * autres pistes triées, sans transition.
+ */
 export function normalizeTrack(track: Track): Track {
-  if (track.kind === 'main') return { ...track, clips: packClips(track.clips) };
-  return { ...track, clips: track.clips.map(withoutTransition).sort((a, b) => a.start - b.start) };
+  if (track.kind === 'main' && track.magnetic) return { ...track, clips: packClips(track.clips) };
+  const clips = track.kind === 'main' ? [...track.clips] : track.clips.map(withoutTransition);
+  return { ...track, clips: clips.sort((a, b) => a.start - b.start) };
 }
 
 export function trackEnd(track: Track): Ms {
@@ -51,8 +56,15 @@ export function hasRoom(track: Track, start: Ms, duration: Ms, ignoreId?: string
   return track.clips.every((clip) => clip.id === ignoreId || end <= clip.start || start >= clipEnd(clip));
 }
 
+/** Ajoute des clips à la suite, après le dernier clip de la piste. */
 export function appendClips(track: Track, clips: Clip[]): Track {
-  return normalizeTrack({ ...track, clips: [...track.clips, ...clips] });
+  let cursor = trackEnd(track);
+  const placed = clips.map((clip) => {
+    const at = { ...clip, start: cursor };
+    cursor += clip.duration;
+    return at;
+  });
+  return normalizeTrack({ ...track, clips: [...track.clips, ...placed] });
 }
 
 /** Ajoute un clip à sa position (piste libre) ; l'appelant vérifie la place avec `hasRoom`. */

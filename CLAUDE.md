@@ -62,6 +62,12 @@ Règles d'architecture :
 13. **Aperçu temps réel** synchronisé avec la timeline.
 14. **Export MP4** 1080p 30 fps, avec barre de progression et possibilité d'annuler.
 
+Ajouts demandés par l'utilisateur (20/10/2026), hors cahier des charges initial :
+15. **Voix off** : enregistrer sa voix au micro pendant la lecture (doublage), ajoutée sur une piste audio.
+16. **Figer l'image** d'une vidéo de la piste principale (image fixe insérée au curseur).
+17. **Aimant de la piste principale** activable/désactivable (espaces libres entre les rushs).
+18. **Sous-titres : qualité au choix** « Rapide » (whisper-base) ou « Précis » (whisper-small).
+
 **Exclus** : filtres de couleur, effets spéciaux, comptes, cloud, modèles, IA générative.
 
 ## Interface
@@ -140,6 +146,38 @@ Règles d'architecture :
   (hauteur conservée par le navigateur). Export : son passé par `atempo` de FFmpeg (`stretchAudio`).
 - **Format** (`Project.format` 9:16 / 1:1 / 16:9, `FORMATS`) : dimensions 1080p déduites du format ;
   positions relatives au cadre. Cadrage par clip `fit` : `contain` (Ajuster) ou `cover` (Remplir).
+- **Sous-titres** (`features/subtitles/`) : son du projet mixé (`mixProjectAudio`) puis rééchantillonné
+  en mono 16 kHz, transcrit dans `whisper.worker.ts` par transformers.js avec
+  WebAssembly, au choix « Rapide » = `onnx-community/whisper-base` encodeur fp32 + décodeur q8
+  (136 Mo ; l'encodeur q8 dégradait fortement le français) ou « Précis » = `whisper-small` q8
+  (250 Mo), téléchargés depuis Hugging Face au premier usage puis gardés dans « transformers-cache ».
+  Les variantes WebGPU pèsent > 200 Mo pour la seule base : écartées pour le téléphone. Passages
+  inventés par Whisper (crédits de sous-titrage, répétitions) filtrés dans `core/subtitles.ts`. Le moteur ONNX Runtime (`ort-wasm-simd-threaded`) est servi
+  par l'app (pas de CDN), exclu du pré-cache PWA. Découpage en segments courts (≤ 5 mots, ≤ 2,5 s,
+  coupure aux fins de phrase et virgules) dans `core/subtitles.ts` ; sous-titres = `TextClip` avec
+  `subtitle: true` sur une piste texte dédiée, remplacés à chaque régénération.
+- **Fluidité de lecture** : pendant la lecture, le temps est diffusé à chaque image par
+  `store/playbackClock.ts` (curseur de la timeline et compteur mis à jour directement dans le DOM) ;
+  le store ne reçoit le temps qu'à l'arrêt (rien n'est recalculé par React pendant la lecture).
+  Canvas de l'aperçu limité à une densité de 2 ; éléments vidéo/audio attachés à la page dans un
+  conteneur invisible (Safari iPhone décode mal les vidéos hors de la page) ; recalage des vidéos
+  seulement au-delà de 0,5 s d'écart.
+- **Modèle Whisper gardé chargé** : le worker reste ouvert entre deux transcriptions et le modèle se
+  prépare dès l'ouverture de la fenêtre « Sous-titres » (`prepareTranscriber`, `useModelStore`).
+  Sur iPhone en `http://` (réseau local), Safari n'a pas de Cache API : le modèle est retéléchargé à
+  chaque session ; en `https://` (version en ligne), il est gardé.
+- **Édition dans la piste** (`features/timeline/InlineTextEditor.tsx`) : 2ᵉ appui (ou double-clic)
+  sur un texte sélectionné ; Entrée valide et passe au texte suivant de la piste, Échap annule.
+- **Aimant** (`Track.magnetic`, piste principale) : `isFreeTrack` et `normalizeTrack` en dépendent ;
+  sans aimant, la piste principale se comporte comme une piste libre (dépôt refusé s'il n'y a pas
+  de place, pas de nouvelle piste principale) et les transitions ne s'appliquent qu'entre clips qui
+  se chevauchent (`effectiveOverlap`) : leurs boutons sont masqués.
+- **Figer l'image** (`core/freeze.ts`, `features/freeze/`) : image capturée en JPEG à la taille de la
+  vidéo (`captureVideoFrame`), insérée au curseur (2 s) en coupant la vidéo ; la suite est décalée.
+- **Voix off** (`features/voiceover/`) : MediaRecorder sur le micro, converti en WAV à l'arrêt,
+  placé sur une piste audio à l'instant réel du début de l'enregistrement ; la lecture démarre dans
+  le geste (Safari), son de l'aperçu coupé par défaut (`setPreviewMuted`). Micro disponible
+  seulement en https ou localhost.
 - **Glisser-déposer** : souris = glisser direct ; doigt = appui long (400 ms) pour ne pas gêner le
   défilement. Aimantation (10 px écran) sur bords des clips, curseur et 0.
 - **Polices** : Montserrat 800, Bebas Neue, Pacifico via `@fontsource` (servies localement).

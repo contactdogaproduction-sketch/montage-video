@@ -100,6 +100,8 @@ export interface TextClip extends ClipBase {
   style: TextStyle;
   animationIn: TextAnimation;
   animationOut: TextAnimation;
+  /** Sous-titre généré automatiquement (remplacé quand on régénère les sous-titres). */
+  subtitle: boolean;
 }
 
 export type StickerSource = { kind: 'emoji'; emoji: string } | { kind: 'image'; mediaId: string };
@@ -123,6 +125,11 @@ export interface Track {
   clips: Clip[];
   /** Volume de la piste, de 0 à 2 (200 %). */
   volume: number;
+  /**
+   * Piste principale « aimantée » : clips accolés sans trou (un trim décale la suite).
+   * Désactivé : clips placés librement, les espaces restent noirs. Toujours `false` ailleurs.
+   */
+  magnetic: boolean;
 }
 
 export type AspectFormat = '9:16' | '1:1' | '16:9';

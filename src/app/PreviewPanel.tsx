@@ -4,6 +4,7 @@ import { PreviewPlayer } from '../engine/preview/PreviewPlayer';
 import { attachPlayer } from '../engine/preview/playback';
 import { SelectionOverlay } from '../features/transform/SelectionOverlay';
 import { useEditorStore } from '../store/editorStore';
+import { emitPlaybackTime } from '../store/playbackClock';
 import { getProject, useProject, useProjectStore } from '../store/projectStore';
 
 export function PreviewPanel() {
@@ -17,16 +18,26 @@ export function PreviewPanel() {
   useEffect(() => {
     const canvas = canvasRef.current;
     if (!canvas) return;
+    // Pendant la lecture : temps diffusé à chaque image hors de React ; le store (et donc l'interface)
+    // ne reçoit le temps qu'à l'arrêt, pour ne rien recalculer pendant la lecture.
     const player = new PreviewPlayer(canvas, getProject(), {
-      onTime: (t) => useEditorStore.getState().setPlayhead(t),
-      onEnded: () => useEditorStore.getState().setPlaying(false),
+      onTime: emitPlaybackTime,
+      onEnded: () => {
+        useEditorStore.getState().setPlayhead(player.currentTime);
+        useEditorStore.getState().setPlaying(false);
+      },
     });
     playerRef.current = player;
     attachPlayer(player);
 
     const unsubProject = useProjectStore.subscribe((s) => player.setProject(s.history.present));
     const unsubEditor = useEditorStore.subscribe((s) => {
-      if (!s.playing && player.isPlaying) player.pause();
+      if (!s.playing && player.isPlaying) {
+        // Arrêt : le store reprend le temps exact du lecteur (il n'était mis à jour que périodiquement).
+        player.pause();
+        useEditorStore.getState().setPlayhead(player.currentTime);
+        return;
+      }
       if (!s.playing && Math.abs(s.playhead - player.currentTime) >= 1) player.seek(s.playhead);
     });
     player.seek(useEditorStore.getState().playhead);

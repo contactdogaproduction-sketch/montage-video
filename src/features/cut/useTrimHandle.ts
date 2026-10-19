@@ -3,7 +3,7 @@ import { clipEnd } from '../../core/clip';
 import { findClipLocation, trimClipInProject } from '../../core/project';
 import { snapPoints, snapValue } from '../../core/snap';
 import type { Ms, Project } from '../../core/types';
-import type { TrimEdge } from '../../core/track';
+import { isFreeTrack, type TrimEdge } from '../../core/track';
 import { useEditorStore } from '../../store/editorStore';
 import { getProject, useProjectStore } from '../../store/projectStore';
 
@@ -28,7 +28,7 @@ export function useTrimHandle(clipId: string, edge: TrimEdge) {
       x: e.clientX,
       edgeTime: edge === 'start' ? location.clip.start : clipEnd(location.clip),
       // Piste principale : la position des voisins dépend du trim, seule la règle sert d'aimant.
-      points: location.track.kind === 'main' ? [] : snapPoints(getProject(), clipId, editor.playhead),
+      points: isFreeTrack(location.track) ? snapPoints(getProject(), clipId, editor.playhead) : [],
     };
     useProjectStore.getState().beginGesture();
   };

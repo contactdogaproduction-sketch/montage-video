@@ -18,6 +18,8 @@ export function togglePlayback(): void {
   if (!player) return;
   if (player.isPlaying) {
     player.pause();
+    // Le store ne reçoit le temps que périodiquement pendant la lecture : on lui donne le temps exact.
+    editor.setPlayhead(player.currentTime);
     editor.setPlaying(false);
     return;
   }
@@ -25,4 +27,9 @@ export function togglePlayback(): void {
   player.seek(editor.playhead);
   player.play();
   editor.setPlaying(true);
+}
+
+/** Coupe ou rétablit le son de l'aperçu (enregistrement de la voix : pas d'écho dans le micro). */
+export function setPreviewMuted(muted: boolean): void {
+  player?.setMuted(muted);
 }

@@ -18,6 +18,15 @@ export function transitionOverlap(previous: Clip, next: Clip | undefined): Ms {
   return Math.max(0, Math.min(previous.transition.duration, maxTransitionDuration(previous, next)));
 }
 
+/**
+ * Chevauchement réellement disponible : sur une piste principale aimantée, celui de la transition ;
+ * sans aimant, une transition n'agit que si les deux clips se touchent.
+ */
+export function effectiveOverlap(previous: Clip, next: Clip | undefined): Ms {
+  if (!next) return 0;
+  return Math.max(0, Math.min(transitionOverlap(previous, next), previous.start + previous.duration - next.start));
+}
+
 export interface TransitionState {
   from: MediaClip;
   to: Clip;
@@ -31,7 +40,7 @@ export function transitionAt(track: Track, t: Ms): TransitionState | null {
   for (let i = 0; i < track.clips.length - 1; i++) {
     const from = track.clips[i] as Clip;
     const to = track.clips[i + 1] as Clip;
-    const overlap = transitionOverlap(from, to);
+    const overlap = effectiveOverlap(from, to);
     if (overlap === 0 || from.type !== 'media' || !from.transition) continue;
     if (t >= to.start && t < to.start + overlap) {
       return { from, to, transition: from.transition, progress: (t - to.start) / overlap };

@@ -8,7 +8,8 @@ import { createVideoElement, primeVideo } from '../mediaElement';
 import { drawFrame } from '../render';
 
 /** Écart toléré entre l'horloge et un média avant de forcer un repositionnement (s). */
-const RESYNC_THRESHOLD_S = 0.3;
+// Un repositionnement provoque un à-coup visible : on ne recale qu'au-delà d'un écart net.
+const RESYNC_THRESHOLD_S = 0.5;
 /** Délai avant le début d'un clip pour préparer son média (ms). */
 const PRELOAD_MS = 1000;
 
@@ -38,6 +39,13 @@ export class PreviewPlayer {
   private anchorNow = 0;
   private dirty = true;
   private frame = 0;
+  /** Son de l'aperçu coupé (enregistrement de la voix, pour éviter l'écho dans le micro). */
+  private muted = false;
+  /**
+   * Conteneur invisible des éléments vidéo et audio : Safari sur iPhone décode mal (images
+   * saccadées) les vidéos qui ne sont pas dans la page.
+   */
+  private readonly host: HTMLDivElement;
 
   constructor(
     private readonly canvas: HTMLCanvasElement,
@@ -48,6 +56,10 @@ export class PreviewPlayer {
     if (!ctx) throw new Error('Canvas 2D indisponible.');
     this.ctx = ctx;
     this.project = project;
+    this.host = document.createElement('div');
+    this.host.setAttribute('aria-hidden', 'true');
+    this.host.style.cssText = 'position:fixed;left:0;top:0;width:1px;height:1px;overflow:hidden;opacity:0;pointer-events:none;';
+    document.body.appendChild(this.host);
     void loadFonts().then(this.markDirty);
     document.fonts.addEventListener('loadingdone', this.markDirty);
     this.frame = requestAnimationFrame(this.tick);
@@ -95,7 +107,8 @@ export class PreviewPlayer {
 
   /** Taille du canvas en pixels réels ; le dessin reste dans le repère du projet. */
   resize(cssWidth: number, cssHeight: number): void {
-    const dpr = window.devicePixelRatio || 1;
+    // Densité limitée à 2 : au-delà (iPhone = 3), le surcoût de dessin n'apporte rien de visible.
+    const dpr = Math.min(2, window.devicePixelRatio || 1);
     this.canvas.width = Math.max(1, Math.round(cssWidth * dpr));
     this.canvas.height = Math.max(1, Math.round(cssHeight * dpr));
     this.dirty = true;
@@ -112,7 +125,14 @@ export class PreviewPlayer {
     this.players.clear();
     this.images.clear();
     this.gains.clear();
+    this.host.remove();
     void this.audio?.close();
+  }
+
+  /** Coupe ou rétablit le son de l'aperçu. */
+  setMuted(muted: boolean): void {
+    this.muted = muted;
+    if (this.playing) this.syncPlaying(this.time);
   }
 
   private readonly markDirty = () => {
@@ -160,6 +180,7 @@ export class PreviewPlayer {
     }
     player.addEventListener('loadeddata', this.markDirty);
     player.addEventListener('seeked', this.markDirty);
+    this.host.appendChild(player);
     this.players.set(key, player);
     this.connect(key, player);
     return player;
@@ -208,8 +229,9 @@ export class PreviewPlayer {
       // Vitesse du clip ; le navigateur garde la hauteur de la voix (preservesPitch, actif par défaut).
       if (player.playbackRate !== clip.speed) player.playbackRate = clip.speed;
       const node = this.gains.get(playerKey(media.id, slot));
-      if (node) node.gain.value = gain;
-      else player.volume = Math.min(1, gain);
+      const level = this.muted ? 0 : gain;
+      if (node) node.gain.value = level;
+      else player.volume = Math.min(1, level);
       if (player.paused) void player.play().catch(() => undefined);
     }
     for (const player of this.players.values()) if (!used.has(player) && !player.paused) player.pause();
@@ -239,7 +261,7 @@ export class PreviewPlayer {
     // Le premier média en cours sert d'horloge maître quand il joue normalement (évite la dérive son/image).
     const master = activeMediaClips(this.project, this.time)[0];
     const player = master ? this.players.get(playerKey(master.clip.mediaId, master.slot)) : undefined;
-    if (master && player && !player.paused && !player.seeking && player.readyState >= 3) {
+    if (master && player && !player.paused && !player.seeking && player.readyState >= 2) {
       const mediaTime = master.clip.start + (player.currentTime * 1000 - master.clip.inPoint) / master.clip.speed;
       if (Math.abs(mediaTime - t) < 500) {
         t = mediaTime;

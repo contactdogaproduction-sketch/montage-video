@@ -3,6 +3,7 @@ import type { Clip, Project } from '../../core/types';
 import { getMediaSource } from '../../store/mediaRegistry';
 import { useTrimHandle } from '../cut/useTrimHandle';
 import { speedLabel } from '../speed/SpeedPanel';
+import { InlineTextEditor, startInlineEdit, useInlineEditStore } from './InlineTextEditor';
 import { useClipDrag } from './useClipDrag';
 
 interface ClipViewProps {
@@ -63,6 +64,9 @@ export function clipAppearance(project: Project, clip: Clip): { label: string; s
 export function ClipView({ project, clip, left, width, pxPerSecond, selected, dragging, onSelect }: ClipViewProps) {
   const drag = useClipDrag(clip.id);
   const look = clipAppearance(project, clip);
+  const editing = useInlineEditStore((s) => s.editingId === clip.id);
+
+  if (editing && clip.type === 'text') return <InlineTextEditor clip={clip} left={left} width={width} />;
 
   return (
     <div
@@ -73,8 +77,15 @@ export function ClipView({ project, clip, left, width, pxPerSecond, selected, dr
       }}
       onClick={(e) => {
         e.stopPropagation();
-        onSelect(clip.id);
+        // Texte déjà sélectionné : un nouvel appui ouvre la modification directement dans la piste.
+        if (selected && clip.type === 'text') startInlineEdit(clip);
+        else onSelect(clip.id);
       }}
+      onDoubleClick={(e) => {
+        e.stopPropagation();
+        if (clip.type === 'text') startInlineEdit(clip);
+      }}
+      title={clip.type === 'text' ? 'Touchez à nouveau (ou double-cliquez) pour modifier le texte' : undefined}
       onContextMenu={(e) => e.preventDefault()}
       className={`absolute inset-y-1 overflow-hidden rounded-lg select-none [-webkit-touch-callout:none] ${look.className} ${
         selected ? 'ring-2 ring-accent' : 'ring-1 ring-white'
