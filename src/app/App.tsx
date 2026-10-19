@@ -4,6 +4,7 @@ import { startSession, useSessionStore } from '../features/projects/session';
 import { Timeline } from '../features/timeline/Timeline';
 import { useProjectStore } from '../store/projectStore';
 import { Toaster } from '../ui/Toaster';
+import { AppSection } from './AppSection';
 import { Inspector } from './Inspector';
 import { PlaybackBar } from './PlaybackBar';
 import { PreviewPanel } from './PreviewPanel';
@@ -46,7 +47,7 @@ export function App() {
       <div className="pb-[env(safe-area-inset-bottom)]">
         <Timeline />
       </div>
-      {projectsOpen && <ProjectsScreen />}
+      {projectsOpen && <ProjectsScreen footer={<AppSection />} />}
       <Toaster />
       <UpdatePrompt />
     </div>

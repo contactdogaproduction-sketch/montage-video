@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useState, type ReactNode } from 'react';
 import { formatDate, formatTime } from '../../core/time';
 import { listProjects, storageUsage, type ProjectSummary } from '../../store/persistence';
 import { useProject } from '../../store/projectStore';
@@ -9,7 +9,8 @@ import { createNewProject, deleteProject, openProject, renameProject, saveNow, u
 const small = 'rounded-lg border border-neutral-200 px-3 py-1.5 text-sm text-neutral-700 hover:bg-neutral-100';
 
 /** Écran « Mes projets » : projets enregistrés sur l'appareil. */
-export function ProjectsScreen() {
+/** `footer` : contenu ajouté sous la liste (réglages de l'application). */
+export function ProjectsScreen({ footer }: { footer?: ReactNode }) {
   const current = useProject();
   const close = () => useSessionStore.getState().setProjectsOpen(false);
   const [projects, setProjects] = useState<ProjectSummary[]>([]);
@@ -84,6 +85,7 @@ export function ProjectsScreen() {
           Vos projets sont enregistrés uniquement sur cet appareil
           {usage !== null && ` (${(usage / 1024 / 1024).toFixed(0)} Mo utilisés)`}.
         </p>
+        {footer}
       </div>
 
       {renaming && (

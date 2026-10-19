@@ -6,19 +6,7 @@
 import { env, pipeline } from '@huggingface/transformers';
 import runtimeMjs from 'onnxruntime-web/ort-wasm-simd-threaded.mjs?url';
 import runtimeWasm from 'onnxruntime-web/ort-wasm-simd-threaded.wasm?url';
-import type { ModelChoice, WorkerRequest, WorkerResponse } from './protocol';
-
-/**
- * Modèles proposés, calculés sur le processeur (WebAssembly, tous navigateurs, iPhone compris) :
- * - Rapide : whisper-base, encodeur non compressé (la compression 8 bits de l'encodeur dégradait
- *   fortement la reconnaissance du français) + décodeur 8 bits : 136 Mo ;
- * - Précis : whisper-small 8 bits : 250 Mo, bien plus fiable en français, 3 à 4 fois plus lent.
- * Les variantes pour carte graphique pèsent plus de 200 Mo pour le seul modèle de base.
- */
-const MODELS: Record<ModelChoice, { id: string; dtype: string | Record<string, string> }> = {
-  fast: { id: 'onnx-community/whisper-base', dtype: { encoder_model: 'fp32', decoder_model_merged: 'q8' } },
-  accurate: { id: 'onnx-community/whisper-small', dtype: 'q8' },
-};
+import { MODEL_CHOICES, type ModelChoice, type WorkerRequest, type WorkerResponse } from './protocol';
 
 const post = (message: WorkerResponse) => (self as unknown as { postMessage: (m: WorkerResponse) => void }).postMessage(message);
 
@@ -52,8 +40,9 @@ async function loadTranscriber(model: ModelChoice): Promise<Transcriber> {
     post({ type: 'download', progress: total > 0 ? loaded / total : 0 });
   };
 
-  const { id, dtype } = MODELS[model];
-  return pipeline('automatic-speech-recognition', id, { device: 'wasm', dtype, progress_callback } as Record<string, unknown>) as unknown as Promise<Transcriber>;
+  // Calcul sur le processeur : les variantes pour carte graphique pèsent plus de 200 Mo pour la seule base.
+  const { repo, dtype } = MODEL_CHOICES[model];
+  return pipeline('automatic-speech-recognition', repo, { device: 'wasm', dtype, progress_callback } as Record<string, unknown>) as unknown as Promise<Transcriber>;
 }
 
 /** Un seul modèle gardé en mémoire (celui choisi) pour les transcriptions suivantes. */

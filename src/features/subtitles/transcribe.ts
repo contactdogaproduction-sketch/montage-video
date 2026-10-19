@@ -2,7 +2,7 @@ import { create } from 'zustand';
 import type { TranscriptChunk } from '../../core/subtitles';
 import type { Project } from '../../core/types';
 import { mixProjectAudio } from '../../engine/export/audioMix';
-import type { ModelChoice, TranscriptLanguage, WorkerRequest, WorkerResponse } from './protocol';
+import { MODEL_CHOICES, type ModelChoice, type TranscriptLanguage, type WorkerRequest, type WorkerResponse } from './protocol';
 
 const WHISPER_SAMPLE_RATE = 16000;
 
@@ -118,5 +118,21 @@ export async function transcribeProject(
     });
   } finally {
     if (listener) listeners.delete(listener);
+  }
+}
+
+/**
+ * Le modèle (et le moteur de calcul) sont-ils déjà sur l'appareil ? Ils sont alors utilisables
+ * sans connexion. Cache tenu par transformers.js (« transformers-cache »).
+ */
+export async function isModelDownloaded(model: ModelChoice): Promise<boolean> {
+  try {
+    if (typeof caches === 'undefined') return false;
+    const urls = (await (await caches.open('transformers-cache')).keys()).map((r) => r.url);
+    const { repo, files } = MODEL_CHOICES[model];
+    const hasRuntime = urls.some((u) => /ort-wasm-simd-threaded[^/]*\.wasm$/.test(u));
+    return hasRuntime && files.every((file) => urls.some((u) => u.includes(repo) && u.endsWith(file)));
+  } catch {
+    return false;
   }
 }

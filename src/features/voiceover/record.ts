@@ -49,3 +49,18 @@ export async function startVoiceRecording(name: string): Promise<VoiceRecording>
     },
   };
 }
+
+/** Explication et marche à suivre selon la raison pour laquelle le micro n'a pas pu démarrer. */
+export function microphoneErrorMessage(error: unknown): string {
+  const name = error instanceof DOMException ? error.name : '';
+  const ua = navigator.userAgent;
+  const ios = /iPhone|iPad|iPod/.test(ua) || (ua.includes('Macintosh') && navigator.maxTouchPoints > 1);
+  if (name === 'NotAllowedError' || name === 'SecurityError') {
+    return ios
+      ? 'Le micro a été refusé. Pour l’autoriser : dans Safari, touchez « aA » à gauche de l’adresse → Réglages du site web → Micro → Autoriser. Pour l’app installée : Réglages de l’iPhone → Apps → Safari → Micro → Autoriser. Puis réessayez.'
+      : 'Le micro a été refusé. Cliquez sur l’icône à gauche de l’adresse (cadenas ou réglages) → Micro → Autoriser, puis réessayez. Vérifiez aussi que Windows autorise le micro : Paramètres → Confidentialité → Microphone.';
+  }
+  if (name === 'NotFoundError' || name === 'OverconstrainedError') return 'Aucun micro n’a été trouvé sur cet appareil. Branchez-en un (ou des écouteurs avec micro) et réessayez.';
+  if (name === 'NotReadableError' || name === 'AbortError') return 'Le micro est déjà utilisé par une autre application (appel, autre onglet). Fermez-la et réessayez.';
+  return 'Le micro n’a pas pu démarrer. Réessayez ; si le problème continue, redémarrez l’application.';
+}

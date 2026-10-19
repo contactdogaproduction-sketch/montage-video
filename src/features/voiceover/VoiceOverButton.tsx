@@ -13,7 +13,7 @@ import { Segmented } from '../../ui/controls';
 import { Modal } from '../../ui/Modal';
 import { ToolButton } from '../../ui/ToolButton';
 import { readMedia } from '../import/readMedia';
-import { canRecord, startVoiceRecording, type VoiceRecording } from './record';
+import { canRecord, microphoneErrorMessage, startVoiceRecording, type VoiceRecording } from './record';
 
 const MicIcon = () => (
   <svg viewBox="0 0 24 24" width="22" height="22" fill="none" stroke="currentColor" strokeWidth={2} strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
@@ -70,9 +70,9 @@ export function VoiceOverButton() {
     try {
       takeCount += 1;
       recording.current = await startVoiceRecording(`Voix off ${takeCount}`);
-    } catch {
+    } catch (error) {
       stopPreview();
-      setState({ status: 'error', message: 'Accès au micro refusé ou indisponible. Autorisez le micro pour ce site dans les réglages du navigateur.' });
+      setState({ status: 'error', message: microphoneErrorMessage(error) });
       return;
     }
     // La voix est calée sur l'instant où le micro a réellement commencé à enregistrer.

@@ -178,6 +178,12 @@ Ajouts demandés par l'utilisateur (20/10/2026), hors cahier des charges initial
   placé sur une piste audio à l'instant réel du début de l'enregistrement ; la lecture démarre dans
   le geste (Safari), son de l'aperçu coupé par défaut (`setPreviewMuted`). Micro disponible
   seulement en https ou localhost.
+- **Installation et hors ligne** (`features/install/`, `features/subtitles/ModelDownloads.tsx`,
+  section « Application » en bas de « Mes projets ») : bouton d'installation (`beforeinstallprompt`
+  sur Chrome/Edge/Android, étapes « Sur l'écran d'accueil » sur iPhone), état hors ligne (service
+  worker actif), téléchargement à l'avance des modèles de sous-titres (`isModelDownloaded` vérifie
+  le cache « transformers-cache »). Le navigateur intégré de l'app Claude bloque le micro : tester la
+  voix off dans Chrome, Edge ou Safari.
 - **Glisser-déposer** : souris = glisser direct ; doigt = appui long (400 ms) pour ne pas gêner le
   défilement. Aimantation (10 px écran) sur bords des clips, curseur et 0.
 - **Polices** : Montserrat 800, Bebas Neue, Pacifico via `@fontsource` (servies localement).
