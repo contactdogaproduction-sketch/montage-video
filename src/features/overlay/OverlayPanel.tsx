@@ -1,8 +1,7 @@
 import type { MediaClip } from '../../core/types';
-import { editTransform } from '../../store/editClip';
-import { TransformFields } from '../../ui/TransformFields';
+import { TransformSection } from '../keyframes/KeyframePanel';
 
-/** Taille, rotation et position d'une incrustation. */
-export function OverlayPanel({ clip }: { clip: MediaClip }) {
-  return <TransformFields transform={clip.transform} onChange={(update) => editTransform(clip.id, update)} maxScale={2} />;
+/** Placement d'une vidéo ou d'une photo (principale ou incrustation) et ses keyframes. */
+export function OverlayPanel({ clip, overlay }: { clip: MediaClip; overlay: boolean }) {
+  return <TransformSection clip={clip} maxScale={overlay ? 2 : 3} />;
 }

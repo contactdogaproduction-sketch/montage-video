@@ -18,6 +18,8 @@ export function mediaClip(id: string, over: Partial<MediaClip> = {}): MediaClip 
     fadeIn: 0,
     fadeOut: 0,
     transform: CENTERED,
+    keyframes: [],
+    transition: null,
     ...over,
   };
 }

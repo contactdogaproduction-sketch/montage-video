@@ -28,12 +28,36 @@ export interface Transform {
   opacity: number;
 }
 
+export type Easing = 'linear' | 'ease-in-out';
+
+/**
+ * Placement d'un élément à un instant du clip. `easing` : interpolation vers la keyframe suivante.
+ */
+export interface Keyframe {
+  /** Instant relatif au début du clip. */
+  time: Ms;
+  transform: Transform;
+  easing: Easing;
+}
+
+export type TransitionType = 'fade' | 'fade-black' | 'slide' | 'zoom' | 'blur';
+
+/** Transition vers le clip suivant de la piste principale (les deux clips se chevauchent de `duration`). */
+export interface Transition {
+  type: TransitionType;
+  duration: Ms;
+}
+
 interface ClipBase {
   id: string;
   /** Position du début du clip sur la timeline. */
   start: Ms;
   /** Durée du clip sur la timeline. */
   duration: Ms;
+  /** Placement fixe de l'élément, utilisé quand il n'a pas de keyframes. */
+  transform: Transform;
+  /** Keyframes triées par instant ; si la liste n'est pas vide, elles remplacent `transform`. */
+  keyframes: Keyframe[];
 }
 
 /** Clip issu d'un média importé : vidéo, photo ou audio. */
@@ -46,7 +70,8 @@ export interface MediaClip extends ClipBase {
   volume: number;
   fadeIn: Ms;
   fadeOut: Ms;
-  transform: Transform;
+  /** Transition vers le clip suivant (piste principale uniquement). */
+  transition: Transition | null;
 }
 
 export type FontId = 'montserrat' | 'bebas' | 'pacifico';
@@ -67,7 +92,6 @@ export interface TextClip extends ClipBase {
   type: 'text';
   text: string;
   style: TextStyle;
-  transform: Transform;
   animationIn: TextAnimation;
   animationOut: TextAnimation;
 }
@@ -77,7 +101,6 @@ export type StickerSource = { kind: 'emoji'; emoji: string } | { kind: 'image'; 
 export interface StickerClip extends ClipBase {
   type: 'sticker';
   source: StickerSource;
-  transform: Transform;
 }
 
 export type Clip = MediaClip | TextClip | StickerClip;

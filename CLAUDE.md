@@ -119,6 +119,15 @@ Règles d'architecture :
   crée une nouvelle piste au-dessus (`moveClip`, `placeClip`).
 - **Clips** : union `MediaClip | TextClip | StickerClip`. Tout élément visuel a un `Transform`
   (centre x/y en fraction du cadre, échelle, rotation en degrés, opacité), base des keyframes (étape 3).
+- **Keyframes** (`core/keyframes.ts`) : liste triée sur chaque clip, instants relatifs au début du
+  clip, interpolation linéaire ou douce vers la suivante. Avec des keyframes, toute modification du
+  placement au curseur modifie ou crée la keyframe du curseur (`setTransformAt`). Couper ajoute une
+  keyframe de chaque côté de la coupe ; un trim garde les keyframes en place sur la timeline.
+- **Transitions** (`core/transition.ts`) : portées par le clip principal qui sort ; les deux clips se
+  chevauchent de la durée (max. moitié du plus court, 2 s). `core/composition.ts` calcule les couches
+  visibles et les médias audibles (fondu croisé du son). Deux lecteurs par vidéo (« slot ») pour
+  une transition entre deux morceaux d'une même vidéo. Flou par réduction/agrandissement
+  (`ctx.filter` absent de Safari iPhone).
 - **Glisser-déposer** : souris = glisser direct ; doigt = appui long (400 ms) pour ne pas gêner le
   défilement. Aimantation (10 px écran) sur bords des clips, curseur et 0.
 - **Polices** : Montserrat 800, Bebas Neue, Pacifico via `@fontsource` (servies localement).

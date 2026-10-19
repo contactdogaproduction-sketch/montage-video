@@ -1,3 +1,4 @@
+import { shiftKeyframes, splitKeyframes } from './keyframes';
 import type { Clip, MediaClip, MediaInfo, Ms, StickerClip, StickerSource, TextClip, Transform } from './types';
 
 /** Durée minimale d'un clip sur la timeline. */
@@ -29,6 +30,8 @@ export function createMediaClip(id: string, media: MediaInfo, start: Ms, transfo
     fadeIn: 0,
     fadeOut: 0,
     transform,
+    keyframes: [],
+    transition: null,
   };
 }
 
@@ -41,13 +44,14 @@ export function createTextClip(id: string, start: Ms, text = 'Votre texte'): Tex
     text,
     style: { font: 'montserrat', size: 96, color: '#ffffff', strokeColor: '#000000', strokeWidth: 8 },
     transform: CENTERED,
+    keyframes: [],
     animationIn: 'none',
     animationOut: 'none',
   };
 }
 
 export function createStickerClip(id: string, start: Ms, source: StickerSource): StickerClip {
-  return { type: 'sticker', id, start, duration: IMAGE_DEFAULT_DURATION, source, transform: CENTERED };
+  return { type: 'sticker', id, start, duration: IMAGE_DEFAULT_DURATION, source, transform: CENTERED, keyframes: [] };
 }
 
 /** Identifiant du média utilisé par un clip, s'il y en a un. */
@@ -66,6 +70,7 @@ function clamp(value: number, min: number, max: number): number {
  * `sourceDuration` : durée de la source pour une vidéo ou un audio (le début ne peut pas précéder
  * celui de la source) ; `null` pour une photo, un texte ou un sticker (durée libre).
  * `minStart` : le clip ne peut pas commencer avant ce temps (voisin précédent, début de la timeline).
+ * Les keyframes restent au même endroit de la timeline.
  */
 export function trimStart(clip: Clip, delta: Ms, sourceDuration: Ms | null, minStart: Ms = -Infinity): Clip {
   const usesSource = clip.type === 'media' && sourceDuration !== null;
@@ -73,8 +78,9 @@ export function trimStart(clip: Clip, delta: Ms, sourceDuration: Ms | null, minS
   const d = Math.round(clamp(delta, minDelta, clip.duration - MIN_CLIP_DURATION));
   const start = clip.start + d;
   const duration = clip.duration - d;
-  if (clip.type === 'media' && usesSource) return { ...clip, start, duration, inPoint: clip.inPoint + d };
-  return { ...clip, start, duration };
+  const keyframes = shiftKeyframes(clip.keyframes, -d);
+  if (clip.type === 'media' && usesSource) return { ...clip, start, duration, keyframes, inPoint: clip.inPoint + d };
+  return { ...clip, start, duration, keyframes };
 }
 
 /** Déplace la fin du clip de `delta` ms (négatif = raccourcir), dans la limite de la source et de `maxEnd`. */
@@ -92,28 +98,32 @@ export function canSplitAt(clip: Clip, t: Ms): boolean {
 
 /**
  * Coupe le clip au temps `t` ; la seconde partie reçoit l'identifiant `newId`.
- * Les fondus et animations restent aux extrémités : la sortie va à droite, l'entrée reste à gauche.
+ * Les fondus, animations et la transition restent aux extrémités ; les keyframes sont réparties
+ * avec une keyframe ajoutée à la coupe de chaque côté (mouvement continu).
  */
 export function splitClip(clip: Clip, t: Ms, newId: string): [Clip, Clip] | null {
   const at = Math.round(t);
   if (!canSplitAt(clip, at)) return null;
   const leftDuration = at - clip.start;
   const rightDuration = clip.duration - leftDuration;
+  const [leftKeyframes, rightKeyframes] = splitKeyframes(clip.keyframes, clip.transform, leftDuration);
+  const left = { duration: leftDuration, keyframes: leftKeyframes };
+  const right = { id: newId, start: at, duration: rightDuration, keyframes: rightKeyframes };
   switch (clip.type) {
     case 'media':
       return [
-        { ...clip, duration: leftDuration, fadeOut: 0 },
-        { ...clip, id: newId, start: at, inPoint: clip.inPoint + leftDuration, duration: rightDuration, fadeIn: 0 },
+        { ...clip, ...left, fadeOut: 0, transition: null },
+        { ...clip, ...right, inPoint: clip.inPoint + leftDuration, fadeIn: 0 },
       ];
     case 'text':
       return [
-        { ...clip, duration: leftDuration, animationOut: 'none' },
-        { ...clip, id: newId, start: at, duration: rightDuration, animationIn: 'none' },
+        { ...clip, ...left, animationOut: 'none' },
+        { ...clip, ...right, animationIn: 'none' },
       ];
     case 'sticker':
       return [
-        { ...clip, duration: leftDuration },
-        { ...clip, id: newId, start: at, duration: rightDuration },
+        { ...clip, ...left },
+        { ...clip, ...right },
       ];
   }
 }

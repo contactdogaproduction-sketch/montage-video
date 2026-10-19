@@ -1,5 +1,7 @@
 import { useEffect, useLayoutEffect, useRef, type PointerEvent, type TouchEvent } from 'react';
+import { clipEnd } from '../../core/clip';
 import { findClipLocation, projectDuration } from '../../core/project';
+import { TRANSITION_LABELS } from '../../core/transition';
 import { useEditorStore } from '../../store/editorStore';
 import { useProject } from '../../store/projectStore';
 import { ZoomInIcon, ZoomOutIcon } from '../../ui/icons';
@@ -19,6 +21,7 @@ export function Timeline() {
   const playing = useEditorStore((s) => s.playing);
   const pxPerSecond = useEditorStore((s) => s.pxPerSecond);
   const selectedClipId = useEditorStore((s) => s.selectedClipId);
+  const selectedTransitionId = useEditorStore((s) => s.selectedTransitionId);
   const drag = useDragStore((s) => s.drag);
   const scrollRef = useRef<HTMLDivElement>(null);
   const contentRef = useRef<HTMLDivElement>(null);
@@ -188,11 +191,43 @@ export function Timeline() {
                   clip={clip}
                   left={toX(clip.start)}
                   width={(clip.duration / 1000) * pxPerSecond}
+                  pxPerSecond={pxPerSecond}
                   selected={clip.id === selectedClipId}
                   dragging={clip.id === drag?.clipId}
                   onSelect={select}
                 />
               ))}
+              {track.kind === 'main' &&
+                track.clips.slice(0, -1).map((clip, i) => {
+                  const next = track.clips[i + 1];
+                  if (!next) return null;
+                  const center = (next.start + clipEnd(clip)) / 2;
+                  const transition = clip.type === 'media' ? clip.transition : null;
+                  const selected = selectedTransitionId === clip.id;
+                  return (
+                    <button
+                      key={`transition-${clip.id}`}
+                      type="button"
+                      title={transition ? `Transition : ${TRANSITION_LABELS[transition.type]}` : 'Ajouter une transition'}
+                      aria-label={transition ? `Transition : ${TRANSITION_LABELS[transition.type]}` : 'Ajouter une transition'}
+                      className={`absolute top-1/2 z-20 flex h-7 w-7 -translate-x-1/2 -translate-y-1/2 items-center justify-center rounded-lg border text-sm font-semibold shadow ${
+                        selected
+                          ? 'border-accent bg-accent text-white'
+                          : transition
+                            ? 'border-accent bg-white text-accent'
+                            : 'border-neutral-300 bg-white text-neutral-600'
+                      }`}
+                      style={{ left: toX(center) }}
+                      onPointerDown={(e) => e.stopPropagation()}
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        useEditorStore.getState().selectTransition(clip.id);
+                      }}
+                    >
+                      {transition ? '⧓' : '+'}
+                    </button>
+                  );
+                })}
             </div>
           ))}
 

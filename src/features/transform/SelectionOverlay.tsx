@@ -1,6 +1,7 @@
 import { useRef, type PointerEvent } from 'react';
+import { clipEnd } from '../../core/clip';
+import { transformAtTime } from '../../core/keyframes';
 import { findClipLocation } from '../../core/project';
-import { findClipAt } from '../../core/track';
 import type { Transform } from '../../core/types';
 import { elementBox, hitTest } from '../../engine/render';
 import { editTransform } from '../../store/editClip';
@@ -29,8 +30,9 @@ export function SelectionOverlay({ width }: { width: number }) {
   const k = width / project.width;
 
   const location = selectedClipId ? findClipLocation(project, selectedClipId) : undefined;
-  const visible = location && location.track.kind !== 'main' && location.track.kind !== 'audio' && findClipAt(location.track, playhead)?.id === location.clip.id;
-  const box = visible ? elementBox(project, location.clip) : null;
+  // Cadre de sélection : élément visuel présent au curseur, à son placement courant (keyframes comprises).
+  const visible = location && location.track.kind !== 'audio' && location.clip.start <= playhead && playhead < clipEnd(location.clip);
+  const box = visible ? elementBox(project, location.clip, transformAtTime(location.clip, playhead)) : null;
 
   const toProject = (clientX: number, clientY: number) => {
     const rect = surfaceRef.current?.getBoundingClientRect();

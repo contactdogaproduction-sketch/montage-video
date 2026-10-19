@@ -1,8 +1,9 @@
 import { clipMediaId, sourceTimeAt } from '../../core/clip';
+import { visibleLayers, type SourceSlot } from '../../core/composition';
 import type { MediaInfo, Ms, Project } from '../../core/types';
 import { getMediaSource } from '../../store/mediaRegistry';
 import { createVideoElement, primeVideo, seekVideo, waitForEvent } from '../mediaElement';
-import { drawFrame, visibleClips } from '../render';
+import { drawFrame } from '../render';
 
 /** Délai maximal de chargement d'un média ou d'un positionnement pendant l'export. */
 const MEDIA_TIMEOUT_MS = 20_000;
@@ -16,6 +17,8 @@ async function expect(target: EventTarget, event: string, name: string): Promise
   }
 }
 
+const videoKey = (mediaId: string, slot: SourceSlot) => `${mediaId}#${slot}`;
+
 /** Rendu image par image pour l'export : chaque vidéo visible est positionnée exactement avant le dessin. */
 export class FrameSource {
   private readonly videos = new Map<string, HTMLVideoElement>();
@@ -24,12 +27,12 @@ export class FrameSource {
   constructor(private readonly project: Project) {}
 
   async draw(ctx: CanvasRenderingContext2D, t: Ms): Promise<void> {
-    for (const { clip } of visibleClips(this.project, t)) {
+    for (const { clip, slot } of visibleLayers(this.project, t)) {
       const mediaId = clipMediaId(clip);
       const media = mediaId ? this.project.media[mediaId] : undefined;
       if (!media) continue;
       if (media.kind === 'video' && clip.type === 'media') {
-        const video = await this.video(media);
+        const video = await this.video(media, slot);
         try {
           await seekVideo(video, sourceTimeAt(clip, t) / 1000, MEDIA_TIMEOUT_MS);
         } catch {
@@ -39,7 +42,9 @@ export class FrameSource {
         await this.image(media);
       }
     }
-    drawFrame(ctx, this.project, t, (m) => (m.kind === 'video' ? this.videos.get(m.id) : this.images.get(m.id)) ?? null);
+    drawFrame(ctx, this.project, t, (layer, m) =>
+      (m.kind === 'video' ? this.videos.get(videoKey(m.id, layer.slot)) : this.images.get(m.id)) ?? null,
+    );
   }
 
   dispose(): void {
@@ -52,8 +57,9 @@ export class FrameSource {
     this.images.clear();
   }
 
-  private async video(media: MediaInfo): Promise<HTMLVideoElement> {
-    const existing = this.videos.get(media.id);
+  private async video(media: MediaInfo, slot: SourceSlot): Promise<HTMLVideoElement> {
+    const key = videoKey(media.id, slot);
+    const existing = this.videos.get(key);
     if (existing) return existing;
     const source = getMediaSource(media.id);
     if (!source) throw new Error(`Fichier introuvable : ${media.name}`);
@@ -62,7 +68,7 @@ export class FrameSource {
     // iPhone : une lecture muette brève est nécessaire pour que les images soient disponibles.
     await primeVideo(video);
     if (video.readyState < 2) await expect(video, 'loadeddata', media.name);
-    this.videos.set(media.id, video);
+    this.videos.set(key, video);
     return video;
   }
 

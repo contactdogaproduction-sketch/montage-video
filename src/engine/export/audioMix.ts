@@ -1,4 +1,4 @@
-import { effectiveFades } from '../../core/audio';
+import { trackFades } from '../../core/audio';
 import { clipEnd } from '../../core/clip';
 import { projectDuration } from '../../core/project';
 import type { Project } from '../../core/types';
@@ -41,7 +41,8 @@ export async function mixProjectAudio(project: Project, signal: AbortSignal): Pr
 
       const start = clip.start / 1000;
       const end = clipEnd(clip) / 1000;
-      const { fadeIn, fadeOut } = effectiveFades(clip);
+      // Fondus du clip, et fondu croisé avec ses voisins pendant les transitions.
+      const { fadeIn, fadeOut } = trackFades(track, clip);
       const gain = ctx.createGain();
       gain.gain.setValueAtTime(fadeIn > 0 ? 0 : level, start);
       if (fadeIn > 0) gain.gain.linearRampToValueAtTime(level, start + fadeIn / 1000);

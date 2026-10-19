@@ -4,6 +4,7 @@ import {
   hasRoom,
   insertClip,
   insertInMainAt,
+  normalizeTrack,
   removeClip,
   replaceClip,
   splitClipInTrack,
@@ -108,12 +109,12 @@ export function pruneEmptyTracks(project: Project): Project {
   return tracks.length === project.tracks.length ? project : { ...project, tracks };
 }
 
-/** Insère une piste juste au-dessus de `belowId` (ou tout en haut). */
+/** Insère une piste (normalisée) juste au-dessus de `belowId` (ou tout en haut). */
 function addTrackAbove(project: Project, track: Track, belowId?: string): Project {
   const index = belowId ? project.tracks.findIndex((t) => t.id === belowId) : -1;
   const tracks = [...project.tracks];
-  if (index < 0) tracks.push(track);
-  else tracks.splice(index + 1, 0, track);
+  if (index < 0) tracks.push(normalizeTrack(track));
+  else tracks.splice(index + 1, 0, normalizeTrack(track));
   return { ...project, tracks };
 }
 
@@ -201,7 +202,8 @@ export function moveClip(project: Project, clipId: string, target: MoveTarget, s
   if (!destination || !canHost(project, destination, clip)) return null;
 
   if (destination.kind === 'main') {
-    const entering: Clip = clip.type === 'media' && location.track.kind !== 'main' ? { ...clip, transform: CENTERED } : clip;
+    // Une incrustation qui rejoint la piste principale reprend le placement plein cadre.
+    const entering: Clip = clip.type === 'media' && location.track.kind !== 'main' ? { ...clip, transform: CENTERED, keyframes: [] } : clip;
     const track = insertInMainAt(destination, entering, position + clip.duration / 2);
     return pruneEmptyTracks(replaceTrack(without, track));
   }

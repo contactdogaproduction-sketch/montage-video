@@ -9,6 +9,8 @@ interface ClipViewProps {
   clip: Clip;
   left: number;
   width: number;
+  /** Zoom de la timeline (position des keyframes). */
+  pxPerSecond: number;
   selected: boolean;
   /** Clip en cours de déplacement : affiché en transparence à sa place d'origine. */
   dragging: boolean;
@@ -57,7 +59,7 @@ export function clipAppearance(project: Project, clip: Clip): { label: string; s
   }
 }
 
-export function ClipView({ project, clip, left, width, selected, dragging, onSelect }: ClipViewProps) {
+export function ClipView({ project, clip, left, width, pxPerSecond, selected, dragging, onSelect }: ClipViewProps) {
   const drag = useClipDrag(clip.id);
   const look = clipAppearance(project, clip);
 
@@ -88,6 +90,14 @@ export function ClipView({ project, clip, left, width, selected, dragging, onSel
       </span>
       {selected && (
         <>
+          {clip.keyframes.map((k) => (
+            <span
+              key={k.time}
+              aria-hidden="true"
+              className="pointer-events-none absolute top-1 z-10 h-2.5 w-2.5 -translate-x-1/2 rotate-45 bg-white ring-1 ring-accent"
+              style={{ left: (k.time / 1000) * pxPerSecond }}
+            />
+          ))}
           <TrimHandle clipId={clip.id} edge="start" />
           <TrimHandle clipId={clip.id} edge="end" />
         </>

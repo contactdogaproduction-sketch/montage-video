@@ -2,6 +2,7 @@ import type { Transform } from '../core/types';
 import { Field, Slider } from './controls';
 
 interface TransformFieldsProps {
+  /** Placement affiché (au curseur, keyframes comprises). */
   transform: Transform;
   onChange: (update: (transform: Transform) => Transform) => void;
   maxScale?: number;
@@ -13,7 +14,7 @@ const POSITIONS = [
   { label: 'Bas', y: 0.8 },
 ];
 
-/** Taille, rotation et position rapide d'un élément visuel. */
+/** Taille, rotation, opacité et position rapide d'un élément visuel. */
 export function TransformFields({ transform, onChange, maxScale = 3 }: TransformFieldsProps) {
   return (
     <>
@@ -34,6 +35,15 @@ export function TransformFields({ transform, onChange, maxScale = 3 }: Transform
         step={1}
         format={(v) => `${Math.round(v)}°`}
         onChange={(rotation) => onChange((t) => ({ ...t, rotation }))}
+      />
+      <Slider
+        label="Opacité"
+        value={transform.opacity}
+        min={0}
+        max={1}
+        step={0.01}
+        format={(v) => `${Math.round(v * 100)} %`}
+        onChange={(opacity) => onChange((t) => ({ ...t, opacity }))}
       />
       <Field label="Position (ou glissez l’élément dans l’aperçu)">
         <div className="flex gap-1.5">

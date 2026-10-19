@@ -1,12 +1,11 @@
-import { clipGainAt } from '../../core/audio';
 import { clipMediaId, sourceTimeAt } from '../../core/clip';
+import { activeMediaClips, visibleLayers, type Layer, type SourceSlot } from '../../core/composition';
 import { projectDuration } from '../../core/project';
-import { findClipAt } from '../../core/track';
-import type { MediaClip, MediaInfo, Ms, Project, Track } from '../../core/types';
+import type { MediaInfo, Ms, Project } from '../../core/types';
 import { getMediaSource } from '../../store/mediaRegistry';
 import { loadFonts } from '../fonts';
 import { createVideoElement, primeVideo } from '../mediaElement';
-import { drawFrame, visibleClips } from '../render';
+import { drawFrame } from '../render';
 
 /** Écart toléré entre l'horloge et un média avant de forcer un repositionnement (s). */
 const RESYNC_THRESHOLD_S = 0.3;
@@ -18,11 +17,8 @@ interface PlayerCallbacks {
   onEnded: () => void;
 }
 
-interface ActiveMedia {
-  track: Track;
-  clip: MediaClip;
-  media: MediaInfo;
-}
+/** Clé d'un lecteur : un média peut avoir deux lecteurs (transition entre deux morceaux d'une même vidéo). */
+const playerKey = (mediaId: string, slot: SourceSlot) => `${mediaId}#${slot}`;
 
 /**
  * Lecteur de l'aperçu : compose le projet sur le canvas et synchronise les éléments vidéo et audio
@@ -130,20 +126,21 @@ export class PreviewPlayer {
     if (session) session.type = 'playback';
     if (!this.audio) {
       this.audio = new AudioContext();
-      for (const [mediaId, player] of this.players) this.connect(mediaId, player);
+      for (const [key, player] of this.players) this.connect(key, player);
     }
     if (this.audio.state === 'suspended') void this.audio.resume();
   }
 
-  private connect(mediaId: string, player: HTMLMediaElement): void {
-    if (!this.audio || this.gains.has(mediaId)) return;
+  private connect(key: string, player: HTMLMediaElement): void {
+    if (!this.audio || this.gains.has(key)) return;
     const gain = this.audio.createGain();
     this.audio.createMediaElementSource(player).connect(gain).connect(this.audio.destination);
-    this.gains.set(mediaId, gain);
+    this.gains.set(key, gain);
   }
 
-  private player(media: MediaInfo): HTMLMediaElement | null {
-    const existing = this.players.get(media.id);
+  private player(media: MediaInfo, slot: SourceSlot): HTMLMediaElement | null {
+    const key = playerKey(media.id, slot);
+    const existing = this.players.get(key);
     if (existing) return existing;
     const source = getMediaSource(media.id);
     if (!source) return null;
@@ -163,8 +160,8 @@ export class PreviewPlayer {
     }
     player.addEventListener('loadeddata', this.markDirty);
     player.addEventListener('seeked', this.markDirty);
-    this.players.set(media.id, player);
-    this.connect(media.id, player);
+    this.players.set(key, player);
+    this.connect(key, player);
     return player;
   }
 
@@ -186,40 +183,29 @@ export class PreviewPlayer {
     return duration > 0 ? Math.min(this.time, duration - 1) : this.time;
   }
 
-  private mediaClipOf(track: Track, t: Ms): ActiveMedia | null {
-    const clip = findClipAt(track, t);
-    if (!clip || clip.type !== 'media') return null;
-    const media = this.project.media[clip.mediaId];
-    return media && media.kind !== 'image' ? { track, clip, media } : null;
-  }
-
-  /** Clips vidéo et audio en cours au temps `t`, piste principale en premier. */
-  private activeMedia(t: Ms): ActiveMedia[] {
-    return this.project.tracks.map((track) => this.mediaClipOf(track, t)).filter((a): a is ActiveMedia => a !== null);
-  }
-
   /** À l'arrêt : positionne les vidéos visibles sur la bonne image. */
   private syncPaused(): void {
     for (const player of this.players.values()) if (!player.paused) player.pause();
     const t = this.displayTime();
-    for (const active of this.activeMedia(t)) {
-      if (active.media.kind !== 'video') continue;
-      const player = this.player(active.media);
-      const target = sourceTimeAt(active.clip, t) / 1000;
+    for (const { clip, slot } of activeMediaClips(this.project, t)) {
+      const media = this.project.media[clip.mediaId];
+      if (!media || media.kind !== 'video') continue;
+      const player = this.player(media, slot);
+      const target = sourceTimeAt(clip, t) / 1000;
       if (player && Math.abs(player.currentTime - target) > 0.001) player.currentTime = target;
     }
   }
 
   private syncPlaying(t: Ms): void {
     const used = new Set<HTMLMediaElement>();
-    for (const { track, clip, media } of this.activeMedia(t)) {
-      const player = this.player(media);
-      if (!player || used.has(player)) continue;
+    for (const { clip, slot, gain } of activeMediaClips(this.project, t)) {
+      const media = this.project.media[clip.mediaId];
+      const player = media ? this.player(media, slot) : null;
+      if (!media || !player || used.has(player)) continue;
       used.add(player);
       const target = sourceTimeAt(clip, t) / 1000;
       if (Math.abs(player.currentTime - target) > RESYNC_THRESHOLD_S) player.currentTime = target;
-      const gain = clipGainAt(clip, track.volume, t);
-      const node = this.gains.get(media.id);
+      const node = this.gains.get(playerKey(media.id, slot));
       if (node) node.gain.value = gain;
       else player.volume = Math.min(1, gain);
       if (player.paused) void player.play().catch(() => undefined);
@@ -227,11 +213,11 @@ export class PreviewPlayer {
     for (const player of this.players.values()) if (!used.has(player) && !player.paused) player.pause();
 
     // Prépare les médias des clips qui commencent bientôt, pour un enchaînement sans attente.
-    for (const track of this.project.tracks) {
-      const next = this.mediaClipOf(track, t + PRELOAD_MS);
-      if (!next || next.clip.start <= t) continue;
-      const player = this.player(next.media);
-      const target = next.clip.inPoint / 1000;
+    for (const { clip, slot } of activeMediaClips(this.project, t + PRELOAD_MS)) {
+      if (clip.start <= t) continue;
+      const media = this.project.media[clip.mediaId];
+      const player = media ? this.player(media, slot) : null;
+      const target = clip.inPoint / 1000;
       if (player && !used.has(player) && Math.abs(player.currentTime - target) > 0.05) player.currentTime = target;
     }
   }
@@ -249,8 +235,8 @@ export class PreviewPlayer {
     let t = this.anchorTime + (now - this.anchorNow);
 
     // Le premier média en cours sert d'horloge maître quand il joue normalement (évite la dérive son/image).
-    const master = this.activeMedia(this.time)[0];
-    const player = master ? this.players.get(master.media.id) : undefined;
+    const master = activeMediaClips(this.project, this.time)[0];
+    const player = master ? this.players.get(playerKey(master.clip.mediaId, master.slot)) : undefined;
     if (master && player && !player.paused && !player.seeking && player.readyState >= 3) {
       const mediaTime = master.clip.start + player.currentTime * 1000 - master.clip.inPoint;
       if (Math.abs(mediaTime - t) < 500) {
@@ -274,12 +260,12 @@ export class PreviewPlayer {
     this.dirty = true;
   }
 
-  private readySource(media: MediaInfo): CanvasImageSource | null {
+  private readySource(layer: Layer, media: MediaInfo): CanvasImageSource | null {
     if (media.kind === 'image') {
       const img = this.image(media);
       return img?.complete && img.naturalWidth > 0 ? img : null;
     }
-    const player = this.player(media);
+    const player = this.player(media, layer.slot);
     return player instanceof HTMLVideoElement && player.readyState >= 2 && !player.seeking ? player : null;
   }
 
@@ -288,12 +274,12 @@ export class PreviewPlayer {
     const t = this.displayTime();
     // Une source pas encore prête (chargement, repositionnement) : on garde l'image précédente
     // plutôt qu'un flash ; les événements `seeked` / `load` redemandent un dessin.
-    for (const { clip } of visibleClips(project, t)) {
-      const mediaId = clipMediaId(clip);
+    for (const layer of visibleLayers(project, t)) {
+      const mediaId = clipMediaId(layer.clip);
       const media = mediaId ? project.media[mediaId] : undefined;
-      if (media && media.kind !== 'audio' && !this.readySource(media)) return;
+      if (media && media.kind !== 'audio' && !this.readySource(layer, media)) return;
     }
     ctx.setTransform(canvas.width / project.width, 0, 0, canvas.height / project.height, 0, 0);
-    drawFrame(ctx, project, t, (media) => this.readySource(media));
+    drawFrame(ctx, project, t, (layer, media) => this.readySource(layer, media));
   }
 }

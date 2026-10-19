@@ -1,4 +1,5 @@
 import { clipEnd } from './clip';
+import { transformAtTime } from './keyframes';
 import type { Ms, TextAnimation, TextClip, Transform } from './types';
 
 /** Durée d'une animation d'entrée ou de sortie de texte. */
@@ -29,10 +30,11 @@ function applyAnimation(transform: Transform, animation: TextAnimation, progress
   }
 }
 
-/** Placement du texte au temps `t`, animations d'entrée et de sortie comprises. */
+/** Placement du texte au temps `t` : keyframes, puis animations d'entrée et de sortie par-dessus. */
 export function animatedTextTransform(clip: TextClip, t: Ms): Transform {
   const length = Math.min(TEXT_ANIMATION_MS, clip.duration / 2);
   const inProgress = clamp01((t - clip.start) / length);
   const outProgress = clamp01((clipEnd(clip) - t) / length);
-  return applyAnimation(applyAnimation(clip.transform, clip.animationIn, inProgress), clip.animationOut, outProgress);
+  const base = transformAtTime(clip, t);
+  return applyAnimation(applyAnimation(base, clip.animationIn, inProgress), clip.animationOut, outProgress);
 }

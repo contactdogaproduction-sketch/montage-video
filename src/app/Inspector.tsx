@@ -1,10 +1,11 @@
 import type { ReactNode } from 'react';
-import { findClipLocation } from '../core/project';
+import { findClipLocation, getMainTrack } from '../core/project';
 import type { Project } from '../core/types';
 import { AudioPanel } from '../features/audio/AudioPanel';
 import { OverlayPanel } from '../features/overlay/OverlayPanel';
 import { StickerPanel } from '../features/stickers/StickerPanel';
 import { TextPanel } from '../features/text/TextPanel';
+import { TransitionPanel } from '../features/transitions/TransitionPanel';
 import { useEditorStore } from '../store/editorStore';
 import { useProject } from '../store/projectStore';
 import { CloseIcon } from '../ui/icons';
@@ -22,21 +23,30 @@ function panelFor(project: Project, clipId: string): { title: string; content: R
     case 'media': {
       const media = project.media[clip.mediaId];
       if (!media) return null;
-      const overlay = track.kind === 'overlay' ? <OverlayPanel clip={clip} /> : null;
+      const visual = media.kind !== 'audio' ? <OverlayPanel clip={clip} overlay={track.kind === 'overlay'} /> : null;
       const audio = media.kind !== 'image' ? <AudioPanel clip={clip} track={track} /> : null;
-      if (!overlay && !audio) return null;
-      const title = media.kind === 'audio' ? 'Audio' : track.kind === 'overlay' ? 'Incrustation' : 'Vidéo';
+      const title = media.kind === 'audio' ? 'Audio' : track.kind === 'overlay' ? 'Incrustation' : media.kind === 'image' ? 'Photo' : 'Vidéo';
       return {
         title,
         content: (
           <>
-            {overlay}
+            {visual}
             {audio}
           </>
         ),
       };
     }
   }
+}
+
+/** Réglages de la transition qui suit le clip `fromId` sur la piste principale. */
+function transitionPanelFor(project: Project, fromId: string): { title: string; content: ReactNode } | null {
+  const main = getMainTrack(project);
+  const index = main.clips.findIndex((c) => c.id === fromId);
+  const from = main.clips[index];
+  const to = main.clips[index + 1];
+  if (!from || !to || from.type !== 'media') return null;
+  return { title: 'Transition', content: <TransitionPanel from={from} to={to} /> };
 }
 
 /** Vrai si le clip a des réglages à afficher. */
@@ -51,8 +61,13 @@ export function hasPanel(project: Project, clipId: string | null): boolean {
 export function Inspector() {
   const project = useProject();
   const selectedClipId = useEditorStore((s) => s.selectedClipId);
+  const selectedTransitionId = useEditorStore((s) => s.selectedTransitionId);
   const open = useEditorStore((s) => s.inspectorOpen);
-  const panel = selectedClipId ? panelFor(project, selectedClipId) : null;
+  const panel = selectedClipId
+    ? panelFor(project, selectedClipId)
+    : selectedTransitionId
+      ? transitionPanelFor(project, selectedTransitionId)
+      : null;
   if (!panel) return null;
 
   return (

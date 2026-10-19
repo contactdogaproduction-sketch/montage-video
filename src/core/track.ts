@@ -1,4 +1,5 @@
 import { clipEnd, splitClip, trimEnd, trimStart } from './clip';
+import { transitionOverlap } from './transition';
 import type { Clip, Ms, Track } from './types';
 
 /** Piste où les clips sont placés librement (toutes sauf la principale). */
@@ -6,20 +7,28 @@ export function isFreeTrack(track: Track): boolean {
   return track.kind !== 'main';
 }
 
-/** Accole les clips depuis 0, dans leur ordre. */
+/**
+ * Accole les clips depuis 0, dans leur ordre. Une transition fait chevaucher un clip
+ * et le suivant de la durée de la transition.
+ */
 export function packClips(clips: Clip[]): Clip[] {
   let cursor = 0;
-  return clips.map((clip) => {
+  return clips.map((clip, i) => {
     const packed = clip.start === cursor ? clip : { ...clip, start: cursor };
-    cursor += clip.duration;
+    cursor += clip.duration - transitionOverlap(clip, clips[i + 1]);
     return packed;
   });
+}
+
+/** Les transitions n'existent que sur la piste principale. */
+function withoutTransition(clip: Clip): Clip {
+  return clip.type === 'media' && clip.transition ? { ...clip, transition: null } : clip;
 }
 
 /** Applique les invariants de la piste : principale accolée sans trou, autres triées par début. */
 export function normalizeTrack(track: Track): Track {
   if (track.kind === 'main') return { ...track, clips: packClips(track.clips) };
-  return { ...track, clips: [...track.clips].sort((a, b) => a.start - b.start) };
+  return { ...track, clips: track.clips.map(withoutTransition).sort((a, b) => a.start - b.start) };
 }
 
 export function trackEnd(track: Track): Ms {

@@ -1,8 +1,8 @@
 import { FONTS } from '../../core/fonts';
 import type { TextAnimation, TextClip } from '../../core/types';
-import { editText, editTransform } from '../../store/editClip';
+import { editText } from '../../store/editClip';
 import { ColorField, Segmented, Slider, TextAreaField } from '../../ui/controls';
-import { TransformFields } from '../../ui/TransformFields';
+import { TransformSection } from '../keyframes/KeyframePanel';
 import { ClipTiming } from '../timeline/ClipTiming';
 
 const ANIMATIONS: { value: TextAnimation; label: string }[] = [
@@ -36,7 +36,7 @@ export function TextPanel({ clip }: { clip: TextClip }) {
         format={(v) => (v === 0 ? 'Aucun' : `${v} px`)}
         onChange={(strokeWidth) => style({ strokeWidth })}
       />
-      <TransformFields transform={clip.transform} onChange={(update) => editTransform(clip.id, update)} />
+      <TransformSection clip={clip} />
       <Segmented label="Animation d’entrée" value={clip.animationIn} options={ANIMATIONS} onChange={(animationIn) => editText(clip.id, (c) => ({ ...c, animationIn }))} />
       <Segmented label="Animation de sortie" value={clip.animationOut} options={ANIMATIONS} onChange={(animationOut) => editText(clip.id, (c) => ({ ...c, animationOut }))} />
       <ClipTiming clip={clip} />

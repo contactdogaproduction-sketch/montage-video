@@ -1,34 +1,25 @@
 import { animatedTextTransform } from '../core/animation';
+import { visibleLayers, type Layer } from '../core/composition';
 import { cssFont } from '../core/fonts';
 import { fitContain } from '../core/geometry';
-import { findClipAt } from '../core/track';
-import type { Clip, MediaInfo, Ms, Project, StickerClip, TextClip, Track, Transform } from '../core/types';
+import { transformAtTime } from '../core/keyframes';
+import type { LayerEffect } from '../core/transition';
+import type { Clip, MediaInfo, Ms, Project, StickerClip, TextClip, Transform } from '../core/types';
 
 /** Côté du carré de base d'un sticker, en pixels du cadre (échelle 1). */
 export const STICKER_BASE = 320;
 const LINE_HEIGHT = 1.2;
 const EMOJI_FONT = `${Math.round(STICKER_BASE * 0.85)}px "Apple Color Emoji", "Segoe UI Emoji", "Noto Color Emoji", sans-serif`;
+/** Réduction maximale de l'image pour le flou (1 / 24 de la taille au flou maximal). */
+const BLUR_STRENGTH = 23;
 
-/** Fournit l'image source d'un média (élément vidéo positionné, image chargée), ou `null` si indisponible. */
-export type SourceResolver = (media: MediaInfo) => CanvasImageSource | null;
+/**
+ * Fournit l'image source d'une couche (élément vidéo positionné, image chargée), ou `null` si indisponible.
+ * `layer.slot` distingue les deux lecteurs d'une même vidéo pendant une transition.
+ */
+export type SourceResolver = (layer: Layer, media: MediaInfo) => CanvasImageSource | null;
 
 type Context2D = CanvasRenderingContext2D | OffscreenCanvasRenderingContext2D;
-
-export interface VisibleClip {
-  track: Track;
-  clip: Clip;
-}
-
-/** Éléments visibles au temps `t`, de la couche la plus basse à la plus haute (les pistes audio sont ignorées). */
-export function visibleClips(project: Project, t: Ms): VisibleClip[] {
-  const result: VisibleClip[] = [];
-  for (const track of project.tracks) {
-    if (track.kind === 'audio') continue;
-    const clip = findClipAt(track, t);
-    if (clip) result.push({ track, clip });
-  }
-  return result;
-}
 
 let measureContext: CanvasRenderingContext2D | null = null;
 
@@ -80,7 +71,7 @@ export interface ElementBox {
   rotation: number;
 }
 
-export function elementBox(project: Project, clip: Clip, transform: Transform = clip.transform): ElementBox {
+export function elementBox(project: Project, clip: Clip, transform: Transform): ElementBox {
   const { width, height } = baseSize(project, clip);
   return {
     cx: transform.x * project.width,
@@ -100,29 +91,54 @@ function containsPoint(box: ElementBox, x: number, y: number): boolean {
   return Math.abs(localX) <= box.width / 2 && Math.abs(localY) <= box.height / 2;
 }
 
-/** Élément déplaçable (incrustation, texte, sticker) le plus haut sous le point (x, y) du projet. */
+/** Élément visible le plus haut sous le point (x, y) du projet. */
 export function hitTest(project: Project, t: Ms, x: number, y: number): Clip | null {
-  const candidates = visibleClips(project, t).filter(({ track }) => track.kind !== 'main');
-  for (let i = candidates.length - 1; i >= 0; i--) {
-    const clip = candidates[i]?.clip;
-    if (clip && containsPoint(elementBox(project, clip), x, y)) return clip;
+  const layers = visibleLayers(project, t);
+  for (let i = layers.length - 1; i >= 0; i--) {
+    const clip = layers[i]?.clip;
+    if (clip && containsPoint(elementBox(project, clip, transformAtTime(clip, t)), x, y)) return clip;
   }
   return null;
 }
 
-/** Placement courant d'un élément (animations de texte comprises). */
+/** Placement courant d'un élément : keyframes, et animations d'entrée et de sortie pour le texte. */
 export function transformAt(clip: Clip, t: Ms): Transform {
-  return clip.type === 'text' ? animatedTextTransform(clip, t) : clip.transform;
+  return clip.type === 'text' ? animatedTextTransform(clip, t) : transformAtTime(clip, t);
 }
 
-function withTransform(ctx: Context2D, project: Project, transform: Transform, draw: () => void): void {
+function withTransform(ctx: Context2D, project: Project, transform: Transform, effect: LayerEffect | null, draw: () => void): void {
   ctx.save();
-  ctx.translate(transform.x * project.width, transform.y * project.height);
+  ctx.translate((transform.x + (effect?.offsetX ?? 0)) * project.width, transform.y * project.height);
   ctx.rotate((transform.rotation * Math.PI) / 180);
-  ctx.scale(transform.scale, transform.scale);
-  ctx.globalAlpha = Math.max(0, Math.min(1, transform.opacity));
+  const scale = transform.scale * (effect?.scale ?? 1);
+  ctx.scale(scale, scale);
+  ctx.globalAlpha = Math.max(0, Math.min(1, transform.opacity * (effect?.opacity ?? 1)));
   draw();
   ctx.restore();
+}
+
+let blurCanvas: HTMLCanvasElement | null = null;
+
+/**
+ * Flou par réduction puis agrandissement de l'image : identique sur tous les navigateurs
+ * (le filtre `ctx.filter` n'existe pas sur Safari iPhone).
+ */
+function drawImageBlurred(ctx: Context2D, source: CanvasImageSource, width: number, height: number, amount: number): void {
+  if (amount < 0.01) {
+    ctx.drawImage(source, -width / 2, -height / 2, width, height);
+    return;
+  }
+  blurCanvas ??= document.createElement('canvas');
+  const factor = 1 / (1 + amount * BLUR_STRENGTH);
+  blurCanvas.width = Math.max(1, Math.round(width * factor));
+  blurCanvas.height = Math.max(1, Math.round(height * factor));
+  const small = blurCanvas.getContext('2d');
+  if (!small) return;
+  small.imageSmoothingQuality = 'high';
+  small.drawImage(source, 0, 0, blurCanvas.width, blurCanvas.height);
+  ctx.imageSmoothingEnabled = true;
+  ctx.imageSmoothingQuality = 'high';
+  ctx.drawImage(blurCanvas, -width / 2, -height / 2, width, height);
 }
 
 function drawText(ctx: Context2D, clip: TextClip): void {
@@ -146,7 +162,7 @@ function drawText(ctx: Context2D, clip: TextClip): void {
   });
 }
 
-function drawSticker(ctx: Context2D, project: Project, clip: StickerClip, resolve: SourceResolver): void {
+function drawSticker(ctx: Context2D, project: Project, layer: Layer, clip: StickerClip, resolve: SourceResolver): void {
   if (clip.source.kind === 'emoji') {
     ctx.font = EMOJI_FONT;
     ctx.textAlign = 'center';
@@ -155,7 +171,7 @@ function drawSticker(ctx: Context2D, project: Project, clip: StickerClip, resolv
     return;
   }
   const media = project.media[clip.source.mediaId];
-  const source = media ? resolve(media) : null;
+  const source = media ? resolve(layer, media) : null;
   if (!source) return;
   const { width, height } = baseSize(project, clip);
   ctx.drawImage(source, -width / 2, -height / 2, width, height);
@@ -168,23 +184,24 @@ function drawSticker(ctx: Context2D, project: Project, clip: StickerClip, resolv
 export function drawFrame(ctx: Context2D, project: Project, t: Ms, resolve: SourceResolver): void {
   ctx.fillStyle = '#000';
   ctx.fillRect(0, 0, project.width, project.height);
-  for (const { clip } of visibleClips(project, t)) {
+  for (const layer of visibleLayers(project, t)) {
+    const { clip, effect } = layer;
     const transform = transformAt(clip, t);
     switch (clip.type) {
       case 'media': {
         const media = project.media[clip.mediaId];
         if (!media || media.kind === 'audio') break;
-        const source = resolve(media);
+        const source = resolve(layer, media);
         if (!source) break;
         const { width, height } = baseSize(project, clip);
-        withTransform(ctx, project, transform, () => ctx.drawImage(source, -width / 2, -height / 2, width, height));
+        withTransform(ctx, project, transform, effect, () => drawImageBlurred(ctx, source, width, height, effect?.blur ?? 0));
         break;
       }
       case 'sticker':
-        withTransform(ctx, project, transform, () => drawSticker(ctx, project, clip, resolve));
+        withTransform(ctx, project, transform, effect, () => drawSticker(ctx, project, layer, clip, resolve));
         break;
       case 'text':
-        if (clip.text.trim() !== '') withTransform(ctx, project, transform, () => drawText(ctx, clip));
+        if (clip.text.trim() !== '') withTransform(ctx, project, transform, effect, () => drawText(ctx, clip));
         break;
     }
   }

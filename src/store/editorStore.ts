@@ -14,7 +14,11 @@ interface EditorState {
   pxPerSecond: number;
   /** Panneau de réglages ouvert (sur téléphone ; toujours visible sur grand écran quand un élément est sélectionné). */
   inspectorOpen: boolean;
+  /** Transition sélectionnée : identifiant du clip principal qui la précède. */
+  selectedTransitionId: string | null;
   select: (clipId: string | null) => void;
+  /** Sélectionne la transition qui suit ce clip et ouvre ses réglages. */
+  selectTransition: (clipId: string) => void;
   setInspectorOpen: (open: boolean) => void;
   setPlayhead: (t: Ms) => void;
   setPlaying: (playing: boolean) => void;
@@ -27,7 +31,10 @@ export const useEditorStore = create<EditorState>()((set) => ({
   playing: false,
   pxPerSecond: DEFAULT_ZOOM,
   inspectorOpen: false,
-  select: (selectedClipId) => set(selectedClipId === null ? { selectedClipId, inspectorOpen: false } : { selectedClipId }),
+  selectedTransitionId: null,
+  select: (selectedClipId) =>
+    set(selectedClipId === null ? { selectedClipId, selectedTransitionId: null, inspectorOpen: false } : { selectedClipId, selectedTransitionId: null }),
+  selectTransition: (clipId) => set({ selectedClipId: null, selectedTransitionId: clipId, inspectorOpen: true }),
   setInspectorOpen: (inspectorOpen) => set({ inspectorOpen }),
   setPlayhead: (t) => set({ playhead: Math.max(0, Math.round(t)) }),
   setPlaying: (playing) => set({ playing }),
