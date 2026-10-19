@@ -142,5 +142,13 @@ Règles d'architecture :
 - **Export** : FFmpeg.wasm *mono-thread* (`@ffmpeg/core`), x264 `superfast` CRF 20, segments de
   90 images, AAC 192 kb/s. Images encodées en JPEG via `toDataURL` (synchrone) : `toBlob` /
   `convertToBlob` sont différés jusqu'à 1–3 s par image dans certains navigateurs.
+- **PWA** : `vite-plugin-pwa` (Workbox, `generateSW`), mise à jour proposée à l'utilisateur
+  (`app/UpdatePrompt.tsx`), tout est pré-mis en cache (FFmpeg compris) pour fonctionner hors ligne.
+  Icônes générées par `scripts/generate-icons.mjs` (sans dépendance) dans `public/`.
+- **Publication** : GitHub Pages via `.github/workflows/deploy.yml` à chaque envoi sur `main`
+  (tests puis build avec `BASE_PATH=/nom-du-depot/`). GitHub Pages ne permet pas les en-têtes
+  COOP/COEP : l'app n'en dépend pas (FFmpeg mono-thread, export vérifié sans isolation).
+- **Dossier** : le projet vit dans « Doga prod », qui contient aussi des documents personnels
+  (`facture/`) : ils sont exclus par `.gitignore` et ne doivent jamais être versionnés ni publiés.
 - **Vite `server.fs.allow`** inclut le chemin réel du projet (`realpathSync.native`) : sans cela, un
   dossier virtualisé ou lié empêche de servir le worker de FFmpeg (erreur 403).

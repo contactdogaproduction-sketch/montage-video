@@ -3,3 +3,6 @@ dist
 *.local
 .DS_Store
 .claude/
+
+# Documents personnels du dossier, hors du projet : jamais versionnés ni publiés
+facture/

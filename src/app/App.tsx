@@ -5,6 +5,7 @@ import { PlaybackBar } from './PlaybackBar';
 import { PreviewPanel } from './PreviewPanel';
 import { Toolbar } from './Toolbar';
 import { TopBar } from './TopBar';
+import { UpdatePrompt } from './UpdatePrompt';
 import { useShortcuts } from './useShortcuts';
 
 /**
@@ -28,6 +29,7 @@ export function App() {
         <Timeline />
       </div>
       <Toaster />
+      <UpdatePrompt />
     </div>
   );
 }

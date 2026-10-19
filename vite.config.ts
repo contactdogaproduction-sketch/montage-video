@@ -3,8 +3,11 @@ import { searchForWorkspaceRoot } from 'vite';
 import { defineConfig } from 'vitest/config';
 import react from '@vitejs/plugin-react';
 import tailwindcss from '@tailwindcss/vite';
+import { VitePWA } from 'vite-plugin-pwa';
 
-// FFmpeg.wasm a besoin d'un contexte isolé (SharedArrayBuffer) : en-têtes COOP/COEP.
+// Isolation cross-origin en développement (prépare un éventuel FFmpeg multi-thread).
+// Elle n'est pas nécessaire au fonctionnement : FFmpeg mono-thread marche sans, y compris sur
+// GitHub Pages qui ne permet pas de définir ces en-têtes.
 const isolationHeaders = {
   'Cross-Origin-Opener-Policy': 'same-origin',
   'Cross-Origin-Embedder-Policy': 'require-corp',
@@ -13,7 +16,41 @@ const isolationHeaders = {
 const root = process.cwd();
 
 export default defineConfig({
-  plugins: [react(), tailwindcss()],
+  // Chemin de publication : « /nom-du-depot/ » sur GitHub Pages (fourni par le workflow), « / » sinon.
+  base: process.env.BASE_PATH ?? '/',
+  plugins: [
+    react(),
+    tailwindcss(),
+    VitePWA({
+      // L'utilisateur choisit quand appliquer une mise à jour (pas de rechargement en plein montage).
+      registerType: 'prompt',
+      injectRegister: false,
+      includeAssets: ['apple-touch-icon.png'],
+      manifest: {
+        name: 'Montage vidéo',
+        short_name: 'Montage',
+        description: 'Montage de vidéos courtes pour Reels, TikTok et Shorts, directement sur l’appareil.',
+        lang: 'fr',
+        start_url: '.',
+        scope: '.',
+        display: 'standalone',
+        orientation: 'portrait',
+        background_color: '#ffffff',
+        theme_color: '#ffffff',
+        icons: [
+          { src: 'icon-192.png', sizes: '192x192', type: 'image/png' },
+          { src: 'icon-512.png', sizes: '512x512', type: 'image/png' },
+          { src: 'icon-maskable-512.png', sizes: '512x512', type: 'image/png', purpose: 'maskable' },
+        ],
+      },
+      workbox: {
+        // Tout est mis en cache à l'installation, FFmpeg compris : l'app fonctionne hors ligne.
+        globPatterns: ['**/*.{js,css,html,wasm,woff2,png}'],
+        maximumFileSizeToCacheInBytes: 40 * 1024 * 1024,
+        cleanupOutdatedCaches: true,
+      },
+    }),
+  ],
   server: {
     headers: isolationHeaders,
     // Le chemin réel du projet peut différer de son chemin apparent (dossier virtualisé, lien) :
