@@ -166,6 +166,17 @@ Ajouts demandés par l'utilisateur (20/10/2026), hors cahier des charges initial
   recopiés depuis un cache d'images (`SpriteCache`, aperçu seulement : l'export les dessine
   directement). Deux morceaux successifs d'une même vidéo alternent entre deux lecteurs
   (`clipSlot`) : le suivant est prêt avant la coupe.
+- **Copies allégées pour l'aperçu** (`core/previewCopy.ts`, `features/previewCopy/`) : toute vidéo
+  de plus de 1280 px (grand côté) ou de plus de 30 images/s est convertie en arrière-plan
+  (`previewCopy.worker.ts`, bibliothèque `mediabunny` sur WebCodecs, matériel de l'appareil) en
+  MP4 H.264 720p 30 images/s, une image clé toutes les 0,5 s, son recopié sans réencodage (pas de
+  copie si le son serait perdu). Copie gardée dans `MediaSource.preview` et dans le champ
+  `preview` du fichier enregistré (créée une seule fois). L'aperçu bascule sur la copie à l'arrêt
+  de la lecture ; l'export, figer l'image et les sous-titres utilisent toujours l'original.
+  Progression affichée à droite du bouton Lecture. Après un export réussi, les copies du projet sont
+  supprimées (mémoire et appareil, conversions en cours abandonnées : `removeMediaPreviews`) et
+  l'aperçu repasse sur les originaux ; elles sont recréées à la réouverture du projet. Sans WebCodecs (iOS < 16.4) : original, et
+  message invitant à mettre à jour.
 - **Modèle Whisper gardé chargé** : le worker reste ouvert entre deux transcriptions et le modèle se
   prépare dès l'ouverture de la fenêtre « Sous-titres » (`prepareTranscriber`, `useModelStore`).
   Sur iPhone en `http://` (réseau local), Safari n'a pas de Cache API : le modèle est retéléchargé à

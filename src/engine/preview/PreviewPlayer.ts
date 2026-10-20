@@ -2,7 +2,7 @@ import { clipMediaId, sourceTimeAt } from '../../core/clip';
 import { activeMediaClips, visibleLayers, type AudibleClip, type Layer, type SourceSlot } from '../../core/composition';
 import { projectDuration } from '../../core/project';
 import type { MediaInfo, Ms, Project } from '../../core/types';
-import { getMediaSource } from '../../store/mediaRegistry';
+import { getMediaSource, onMediaPreview } from '../../store/mediaRegistry';
 import { loadFonts } from '../fonts';
 import { createVideoElement, primeVideo } from '../mediaElement';
 import { SpriteCache, drawFrame } from '../render';
@@ -27,6 +27,14 @@ interface PlayerCallbacks {
   onEnded: () => void;
 }
 
+/** Arrête un lecteur et libère son fichier. */
+function release(player: HTMLMediaElement): void {
+  player.pause();
+  player.removeAttribute('src');
+  player.load();
+  player.remove();
+}
+
 /** Clé d'un lecteur : un média peut avoir deux lecteurs (transition entre deux morceaux d'une même vidéo). */
 const playerKey = (mediaId: string, slot: SourceSlot) => `${mediaId}#${slot}`;
 
@@ -46,6 +54,9 @@ export class PreviewPlayer {
   private readonly sprites = new SpriteCache();
   /** Instant de la dernière image dessinée pendant la lecture. */
   private lastFrameAt = 0;
+  /** Médias dont la copie allégée a été créée ou supprimée, à basculer dès que la lecture s'arrête. */
+  private readonly pendingPreviews = new Set<string>();
+  private readonly stopPreviewListener: () => void;
   private audio: AudioContext | null = null;
   private project: Project;
   private time: Ms = 0;
@@ -79,6 +90,10 @@ export class PreviewPlayer {
     void loadFonts().then(this.fontsChanged);
     document.fonts.addEventListener('loadingdone', this.fontsChanged);
     this.frame = requestAnimationFrame(this.tick);
+    this.stopPreviewListener = onMediaPreview((mediaId) => {
+      this.pendingPreviews.add(mediaId);
+      if (!this.playing) this.usePreviews();
+    });
   }
 
   get isPlaying(): boolean {
@@ -118,6 +133,7 @@ export class PreviewPlayer {
     if (!this.playing) return;
     this.playing = false;
     for (const player of this.players.values()) player.pause();
+    this.usePreviews();
     this.dirty = true;
   }
 
@@ -132,13 +148,10 @@ export class PreviewPlayer {
 
   destroy(): void {
     cancelAnimationFrame(this.frame);
+    this.stopPreviewListener();
     document.fonts.removeEventListener('loadingdone', this.fontsChanged);
     this.sprites.clear();
-    for (const player of this.players.values()) {
-      player.pause();
-      player.removeAttribute('src');
-      player.load();
-    }
+    for (const player of this.players.values()) release(player);
     this.players.clear();
     this.images.clear();
     this.gains.clear();
@@ -185,6 +198,30 @@ export class PreviewPlayer {
     this.gains.set(key, gain);
   }
 
+  /**
+   * Remplace les lecteurs des vidéos dont la copie allégée vient d'être créée ou supprimée (à l'arrêt seulement :
+   * changer de fichier en pleine lecture provoquerait un à-coup). Ils sont recréés à la demande.
+   */
+  private usePreviews(): void {
+    if (this.pendingPreviews.size === 0) return;
+    for (const [key, player] of this.players) {
+      const mediaId = key.slice(0, key.lastIndexOf('#'));
+      if (!this.pendingPreviews.has(mediaId)) continue;
+      // Lecteur déjà sur le bon fichier : rien à changer.
+      const source = getMediaSource(mediaId);
+      if (source && player.src === (source.preview?.url ?? source.url)) continue;
+      release(player);
+      this.players.delete(key);
+      this.gains.get(key)?.disconnect();
+      this.gains.delete(key);
+      this.levels.delete(key);
+      this.resyncAfter.delete(player);
+    }
+    this.pendingPreviews.clear();
+    this.syncPaused();
+    this.dirty = true;
+  }
+
   private player(media: MediaInfo, slot: SourceSlot): HTMLMediaElement | null {
     const key = playerKey(media.id, slot);
     const existing = this.players.get(key);
@@ -197,7 +234,8 @@ export class PreviewPlayer {
       player.preload = 'auto';
       player.src = source.url;
     } else {
-      const video = createVideoElement(source.url, false);
+      // Copie allégée quand elle existe : bien moins lourde à décoder (l'export garde l'original).
+      const video = createVideoElement(source.preview?.url ?? source.url, false);
       // iPhone : sans lecture préalable, la vidéo n'a aucune image à dessiner à l'arrêt.
       void primeVideo(video, () => !this.playing).then(() => {
         if (!this.playing) this.syncPaused();

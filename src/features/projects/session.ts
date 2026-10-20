@@ -5,7 +5,7 @@ import { defaultProjectName } from '../../core/time';
 import type { Project } from '../../core/types';
 import { createId } from '../../store/createId';
 import { useEditorStore } from '../../store/editorStore';
-import { clearMediaRegistry, getMediaSource, onMediaRegistered, registerMedia } from '../../store/mediaRegistry';
+import { clearMediaRegistry, getMediaSource, onMediaPreview, onMediaRegistered, registerMedia } from '../../store/mediaRegistry';
 import {
   deleteMediaRecords,
   deleteProjectRecord,
@@ -14,6 +14,7 @@ import {
   loadProjectRecord,
   renameProjectRecord,
   requestPersistentStorage,
+  saveMediaPreview,
   saveMediaRecord,
   saveProjectRecord,
   type ProjectRecord,
@@ -99,7 +100,10 @@ export async function openProject(id: string): Promise<void> {
   const unused: string[] = [];
   for (const m of media) {
     if (!project.media[m.id]) unused.push(m.id);
-    else registerMedia(m.id, { file: m.file, url: URL.createObjectURL(m.file), thumbnail: m.thumbnail }, true);
+    else {
+      const preview = m.preview ? { file: m.preview, url: URL.createObjectURL(m.preview) } : undefined;
+      registerMedia(m.id, { file: m.file, url: URL.createObjectURL(m.file), thumbnail: m.thumbnail, preview }, true);
+    }
   }
   // Fichiers importés puis retirés (import annulé) : on libère la place.
   void deleteMediaRecords(unused).catch(() => undefined);
@@ -173,6 +177,10 @@ async function start(): Promise<void> {
     if (restored || !useSessionStore.getState().storageAvailable) return;
     const name = source.file instanceof File ? source.file.name : id;
     void saveMediaRecord({ id, projectId: getProject().id, file: source.file, name, thumbnail: source.thumbnail }).catch(reportError);
+  });
+  // Copie allégée enregistrée avec le fichier (créée une seule fois), ou retirée après l'export.
+  onMediaPreview((id, preview) => {
+    if (useSessionStore.getState().storageAvailable) void saveMediaPreview(id, preview).catch(() => undefined);
   });
   const flush = () => void saveNow();
   document.addEventListener('visibilitychange', () => {

@@ -3,6 +3,7 @@ import { projectDuration } from '../../core/project';
 import { formatTime } from '../../core/time';
 import { ExportCancelledError, exportProject, type ExportStage } from '../../engine/export/exportProject';
 import { useEditorStore } from '../../store/editorStore';
+import { removeMediaPreviews } from '../../store/mediaRegistry';
 import { getProject, useProject } from '../../store/projectStore';
 import { DownloadIcon } from '../../ui/icons';
 import { Modal } from '../../ui/Modal';
@@ -11,7 +12,8 @@ type ExportState =
   | { status: 'closed' }
   | { status: 'ready' }
   | { status: 'running'; ratio: number; stage: ExportStage }
-  | { status: 'done'; url: string; size: number }
+  /** `freed` : place libérée par la suppression des copies allégées de l'aperçu (octets). */
+  | { status: 'done'; url: string; size: number; freed: number }
   | { status: 'error'; message: string };
 
 const STAGE_LABELS: Record<ExportStage, string> = {
@@ -45,7 +47,9 @@ export function ExportButton() {
         signal: abort.signal,
         onProgress: ({ ratio, stage }) => setState({ status: 'running', ratio, stage }),
       });
-      setState({ status: 'done', url: URL.createObjectURL(blob), size: blob.size });
+      // Montage exporté : les copies allégées de l'aperçu ne servent plus, la place est libérée.
+      const freed = removeMediaPreviews();
+      setState({ status: 'done', url: URL.createObjectURL(blob), size: blob.size, freed });
     } catch (error) {
       if (error instanceof ExportCancelledError) setState({ status: 'ready' });
       else setState({ status: 'error', message: error instanceof Error ? error.message : String(error) });
@@ -109,6 +113,12 @@ export function ExportButton() {
               <p className="text-sm text-neutral-600">
                 Votre vidéo est prête ({(state.size / 1024 / 1024).toFixed(1)} Mo).
               </p>
+              {state.freed > 0 && (
+                <p className="text-xs text-neutral-500">
+                  Copies allégées de l’aperçu supprimées ({(state.freed / 1024 / 1024).toFixed(1)} Mo libérés). Elles seront recréées si vous
+                  rouvrez ce projet.
+                </p>
+              )}
               <a href={state.url} download="montage.mp4" className={primary}>
                 <DownloadIcon width={18} height={18} />
                 Télécharger la vidéo

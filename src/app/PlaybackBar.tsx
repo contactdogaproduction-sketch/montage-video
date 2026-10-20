@@ -2,6 +2,7 @@ import { useEffect, useRef } from 'react';
 import { projectDuration } from '../core/project';
 import { formatTime } from '../core/time';
 import { togglePlayback } from '../engine/preview/playback';
+import { PreviewCopyStatus } from '../features/previewCopy/PreviewCopyStatus';
 import { useEditorStore } from '../store/editorStore';
 import { onPlaybackTime } from '../store/playbackClock';
 import { useProject } from '../store/projectStore';
@@ -40,7 +41,9 @@ export function PlaybackBar() {
         {playing ? <PauseIcon width={18} height={18} /> : <PlayIcon width={18} height={18} />}
         {playing ? 'Pause' : 'Lecture'}
       </button>
-      <span className="flex-1" />
+      <span className="flex min-w-0 flex-1">
+        <PreviewCopyStatus />
+      </span>
     </div>
   );
 }

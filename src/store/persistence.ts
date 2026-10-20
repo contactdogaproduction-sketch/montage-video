@@ -27,6 +27,8 @@ export interface MediaRecord {
   file: Blob;
   name: string;
   thumbnail: string | null;
+  /** Copie allégée pour l'aperçu (vidéos lourdes), créée après l'import. */
+  preview?: Blob;
 }
 
 let opening: Promise<IDBDatabase> | null = null;
@@ -111,6 +113,21 @@ export async function saveMediaRecord(record: MediaRecord): Promise<void> {
   const db = await openDb();
   const tx = db.transaction(MEDIA, 'readwrite');
   tx.objectStore(MEDIA).put(record);
+  await completed(tx);
+}
+
+/** Ajoute la copie allégée au fichier déjà enregistré, ou la retire (`null`). */
+export async function saveMediaPreview(id: string, preview: Blob | null): Promise<void> {
+  const db = await openDb();
+  const tx = db.transaction(MEDIA, 'readwrite');
+  const store = tx.objectStore(MEDIA);
+  const request = store.get(id) as IDBRequest<MediaRecord | undefined>;
+  request.onsuccess = () => {
+    // Rien à retirer : on ne réécrit pas le fichier (coûteux pour une vidéo).
+    if (!request.result || (!preview && !request.result.preview)) return;
+    const { preview: _old, ...record } = request.result;
+    store.put(preview ? { ...record, preview } : record);
+  };
   await completed(tx);
 }
 
