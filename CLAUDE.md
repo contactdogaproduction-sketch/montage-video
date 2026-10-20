@@ -167,8 +167,11 @@ Ajouts demandés par l'utilisateur (20/10/2026), hors cahier des charges initial
   En haut à gauche par défaut (hors des boutons et légendes de TikTok et Reels). Réglé dans la
   fenêtre d'export (`features/watermark/`). Absent tant que le projet est vide.
 - **Motif de fond** (`app/brandPattern.ts`) : tuile de 240 px calculée au démarrage à partir du logo (logo
-  à 10 % d'opacité en quinconce avec des doubles chevrons couleur d'accent à 8 %), variable CSS
-  `--brand-pattern`, classe `.bg-brand-pattern`.
+  à 20 % d'opacité en quinconce avec des doubles chevrons couleur d'accent à 18 %), variable CSS
+  `--brand-pattern`, classe `.bg-brand-pattern` sur le fond de toute l'app, la timeline et « Mes projets »
+  (sur téléphone, l'aperçu cache presque toute sa zone). Cartes posées dessus à fond blanc.
+- **Version affichée** en bas de « Mes projets » (`__APP_VERSION__` : date de build, heure de Paris, et
+  commit publié) pour savoir si une mise à jour est bien arrivée sur l'appareil.
 - **Vitesse** (`MediaClip.speed`, 0,5/1/1,5/2) : `sourceTimeAt = inPoint + (t - start) × vitesse` ;
   changer la vitesse garde le passage de la source et adapte la durée (`setClipSpeed`,
   `changeClipSpeed` qui déplace le clip si une piste libre déborde). Aperçu : `playbackRate`

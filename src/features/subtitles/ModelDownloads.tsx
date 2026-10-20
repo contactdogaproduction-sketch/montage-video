@@ -34,7 +34,7 @@ export function ModelDownloads() {
         const { label, sizeMb } = MODEL_CHOICES[choice];
         const loading = model.model === choice && model.status === 'loading';
         return (
-          <li key={choice} className="flex items-center gap-3 rounded-2xl border border-neutral-200 px-4 py-3 text-sm">
+          <li key={choice} className="flex items-center gap-3 rounded-2xl border border-neutral-200 bg-white px-4 py-3 text-sm">
             <span className="flex-1">
               Sous-titres <strong>{label}</strong> ({sizeMb} Mo)
             </span>

@@ -1,7 +1,7 @@
 import { useState } from 'react';
 import { detectPlatform, promptInstall, useInstallStore } from './installState';
 
-const button = 'w-full rounded-2xl border border-neutral-200 px-4 py-3 text-left font-medium text-neutral-800 hover:bg-neutral-50';
+const button = 'w-full rounded-2xl border border-neutral-200 bg-white px-4 py-3 text-left font-medium text-neutral-800 hover:bg-neutral-50';
 
 /**
  * Installer l'application : raccourci sur le bureau et fenêtre d'app sur ordinateur (Chrome, Edge),

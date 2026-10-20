@@ -15,9 +15,14 @@ const isolationHeaders = {
 
 const root = process.cwd();
 
+// Version affichée dans « Mes projets » : date de publication (heure de Paris) et commit publié.
+const buildDate = new Intl.DateTimeFormat('fr-FR', { dateStyle: 'short', timeStyle: 'short', timeZone: 'Europe/Paris' }).format(new Date());
+const appVersion = `${buildDate} (${process.env.GITHUB_SHA?.slice(0, 7) ?? 'local'})`;
+
 export default defineConfig({
   // Chemin de publication : « /nom-du-depot/ » sur GitHub Pages (fourni par le workflow), « / » sinon.
   base: process.env.BASE_PATH ?? '/',
+  define: { __APP_VERSION__: JSON.stringify(appVersion) },
   plugins: [
     react(),
     tailwindcss(),

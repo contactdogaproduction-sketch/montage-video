@@ -12,6 +12,7 @@ export function AppSection() {
       <h3 className="mt-2 text-sm font-semibold text-neutral-900">Sous-titres sans connexion</h3>
       <p className="text-xs text-neutral-500">Téléchargez le modèle une fois (en Wi-Fi) pour pouvoir sous-titrer ensuite sans réseau.</p>
       <ModelDownloads />
+      <p className="mt-2 text-center text-xs text-neutral-400">Version du {__APP_VERSION__}</p>
     </section>
   );
 }

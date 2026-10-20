@@ -2,10 +2,10 @@ import { loadLogo } from '../engine/logo';
 
 /** Côté du motif, en pixels CSS (dessiné au double pour les écrans haute densité). */
 const TILE = 240;
-const LOGO_SIZE = 42;
-const LOGO_ALPHA = 0.1;
-const CHEVRON_SIZE = 15;
-const CHEVRON_ALPHA = 0.08;
+const LOGO_SIZE = 48;
+const LOGO_ALPHA = 0.2;
+const CHEVRON_SIZE = 16;
+const CHEVRON_ALPHA = 0.18;
 const ACCENT = '#4f46e5';
 
 /** Double chevron, rappel de la pointe du logo. */
@@ -43,7 +43,7 @@ export async function applyBrandPattern(): Promise<void> {
   }
   ctx.globalAlpha = CHEVRON_ALPHA;
   ctx.strokeStyle = ACCENT;
-  ctx.lineWidth = 1.5;
+  ctx.lineWidth = 2;
   ctx.lineCap = 'round';
   chevron(ctx, 3 * quarter, quarter);
   chevron(ctx, quarter, 3 * quarter);

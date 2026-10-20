@@ -138,7 +138,7 @@ export function Timeline() {
   const ghostLook = dragged ? clipAppearance(project, dragged.clip) : null;
 
   return (
-    <section className="flex flex-col border-t border-neutral-200 bg-neutral-50" aria-label="Timeline">
+    <section className="bg-brand-pattern flex flex-col border-t border-neutral-200 bg-neutral-50" aria-label="Timeline">
       <div className="flex items-center justify-end gap-1 px-3 pt-1">
         <MagnetToggle />
         <span className="flex-1" />

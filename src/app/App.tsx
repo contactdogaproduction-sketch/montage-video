@@ -39,7 +39,7 @@ export function App() {
   }
 
   return (
-    <div className="flex h-dvh flex-col bg-white text-neutral-900">
+    <div className="bg-brand-pattern flex h-dvh flex-col bg-white text-neutral-900">
       <TopBar />
       <main className="bg-brand-pattern flex min-h-0 flex-1 flex-col bg-neutral-50 lg:flex-row">
         <div className="flex min-h-0 flex-1 flex-col">
