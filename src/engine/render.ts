@@ -4,6 +4,7 @@ import { filterOperations, type FilterOperation } from '../core/filters';
 import { cssFont } from '../core/fonts';
 import { fitContain, fitCover } from '../core/geometry';
 import { transformAtTime } from '../core/keyframes';
+import { WATERMARK_OPACITY, watermarkRect } from '../core/watermark';
 import type { LayerEffect } from '../core/transition';
 import type { Clip, ClipFilter, MediaInfo, Ms, Project, StickerClip, TextClip, Transform } from '../core/types';
 
@@ -415,11 +416,20 @@ function drawSticker(ctx: Context2D, project: Project, layer: Layer, clip: Stick
 /**
  * Dessine l'image du projet au temps `t`, dans le repère du projet (width × height).
  * Partagé par l'aperçu et l'export : ce qu'on voit est ce qu'on exporte.
- * `sprites` (aperçu) : textes et emojis recopiés depuis un cache ; l'export les dessine directement.
- * `masks` : détourage des personnes ; sans masque, un arrière-plan à supprimer reste visible et
- * la personne d'une transition « détourage » n'est pas dessinée.
+ * Options :
+ * - `sprites` (aperçu) : textes et emojis recopiés depuis un cache ; l'export les dessine directement ;
+ * - `masks` : détourage des personnes ; sans masque, un arrière-plan à supprimer reste visible et
+ *   la personne d'une transition « détourage » n'est pas dessinée ;
+ * - `logo` : logo du filigrane, dessiné au-dessus de tout si le projet en a un.
  */
-export function drawFrame(ctx: Context2D, project: Project, t: Ms, resolve: SourceResolver, sprites?: SpriteCache, masks?: MaskResolver): void {
+export interface FrameOptions {
+  sprites?: SpriteCache;
+  masks?: MaskResolver;
+  logo?: HTMLImageElement | null;
+}
+
+export function drawFrame(ctx: Context2D, project: Project, t: Ms, resolve: SourceResolver, options: FrameOptions = {}): void {
+  const { sprites, masks, logo } = options;
   ctx.fillStyle = '#000';
   ctx.fillRect(0, 0, project.width, project.height);
   for (const layer of visibleLayers(project, t)) {
@@ -459,6 +469,14 @@ export function drawFrame(ctx: Context2D, project: Project, t: Ms, resolve: Sour
       ctx.fillRect(0, 0, project.width, project.height);
       ctx.restore();
     }
+  }
+  const rect = logo && logo.naturalWidth > 0 ? watermarkRect(project, logo.naturalWidth / logo.naturalHeight) : null;
+  if (logo && rect) {
+    ctx.save();
+    ctx.globalAlpha = WATERMARK_OPACITY;
+    ctx.imageSmoothingQuality = 'high';
+    ctx.drawImage(logo, rect.x, rect.y, rect.width, rect.height);
+    ctx.restore();
   }
 }
 

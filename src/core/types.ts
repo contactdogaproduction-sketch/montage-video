@@ -157,4 +157,8 @@ export interface Project {
   media: Record<string, MediaInfo>;
   /** Pistes de la plus basse (piste principale, dessinée en premier) à la plus haute. */
   tracks: Track[];
+  /** Coin du logo en filigrane, ou `null` sans logo. */
+  watermark: WatermarkCorner | null;
 }
+
+export type WatermarkCorner = 'top-left' | 'top-right' | 'bottom-left' | 'bottom-right';

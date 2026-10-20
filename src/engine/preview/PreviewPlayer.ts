@@ -6,6 +6,7 @@ import type { MediaInfo, Ms, Project } from '../../core/types';
 import { getMediaSource, onMediaPreview } from '../../store/mediaRegistry';
 import { setPlaybackAudioSession } from '../audioSession';
 import { loadFonts } from '../fonts';
+import { loadLogo } from '../logo';
 import { createVideoElement, primeVideo } from '../mediaElement';
 import { SpriteCache, drawFrame, type MaskResolver } from '../render';
 import { LiveMasks, loadSegmenter, segmenterReady } from '../segmentation';
@@ -69,6 +70,7 @@ export class PreviewPlayer {
     if (!this.playing) this.dirty = true;
   });
   private segmenterRequested = false;
+  private logo: HTMLImageElement | null = null;
   /** Instant de la dernière image dessinée pendant la lecture. */
   private lastFrameAt = 0;
   /** Vidéo qui donne la cadence du dessin (média maître), et arrivée de ses images. */
@@ -110,6 +112,10 @@ export class PreviewPlayer {
     this.host.style.cssText = 'position:fixed;left:0;top:0;width:1px;height:1px;overflow:hidden;opacity:0;pointer-events:none;';
     document.body.appendChild(this.host);
     void loadFonts().then(this.fontsChanged);
+    void loadLogo().then((logo) => {
+      this.logo = logo;
+      this.dirty = true;
+    });
     document.fonts.addEventListener('loadingdone', this.fontsChanged);
     this.frame = requestAnimationFrame(this.tick);
     this.stopPreviewListener = onMediaPreview((mediaId) => {
@@ -475,6 +481,6 @@ export class PreviewPlayer {
       this.sprites.pixelScale = scale;
     }
     ctx.setTransform(scale, 0, 0, canvas.height / project.height, 0, 0);
-    drawFrame(ctx, project, t, (layer, media) => this.readySource(layer, media), this.sprites, this.mask);
+    drawFrame(ctx, project, t, (layer, media) => this.readySource(layer, media), { sprites: this.sprites, masks: this.mask, logo: this.logo });
   }
 }

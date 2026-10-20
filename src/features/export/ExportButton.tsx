@@ -7,6 +7,7 @@ import { removeMediaPreviews } from '../../store/mediaRegistry';
 import { getProject, useProject } from '../../store/projectStore';
 import { DownloadIcon } from '../../ui/icons';
 import { Modal } from '../../ui/Modal';
+import { WatermarkSettings } from '../watermark/WatermarkSettings';
 
 type ExportState =
   | { status: 'closed' }
@@ -80,6 +81,7 @@ export function ExportButton() {
               <p className="text-sm text-neutral-500">
                 L’export se fait entièrement sur cet appareil et peut prendre plusieurs fois la durée de la vidéo. Gardez la page ouverte.
               </p>
+              <WatermarkSettings />
               <button type="button" className={primary} onClick={start}>
                 Lancer l’export
               </button>

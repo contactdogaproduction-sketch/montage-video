@@ -72,6 +72,8 @@ Ajouts demandés par l'utilisateur (20/10/2026), hors cahier des charges initial
 20. **Transitions à la mode** : flash blanc, balayage flou (whip pan), détourage + balayage (la personne
     reste devant pendant que le décor défile vers le clip suivant).
 21. **Supprimer l'arrière-plan** d'une vidéo ou d'une photo (détourage des personnes, sur l'appareil).
+22. **Logo de l'utilisateur** : icône de l'app (fond couleur d'accent), barre du haut, écran d'ouverture,
+    fond de l'aperçu vide et de « Mes projets », filigrane des vidéos (coin au choix, désactivable).
 
 **Exclus** : effets spéciaux (hors filtres, transitions et détourage ci-dessus), comptes, cloud, modèles, IA générative.
 
@@ -159,6 +161,10 @@ Ajouts demandés par l'utilisateur (20/10/2026), hors cahier des charges initial
   masque adouci (seuil 0,3–0,7) puis agrandi. Aperçu : `LiveMasks` utilise le dernier masque reçu pendant
   que le suivant se calcule (~40 ms) ; export : masque exact calculé avant chaque image (`FrameSource`).
   Tout est pré-mis en cache (hors ligne). Couche `cutout` non dessinée tant que le masque manque.
+- **Filigrane** (`Project.watermark` : coin ou `null`, `core/watermark.ts`) : logo à 14 % du petit côté du cadre,
+  marge 5 %, opacité 85 %, dessiné par `drawFrame` au-dessus de tout (aperçu et export identiques).
+  En haut à gauche par défaut (hors des boutons et légendes de TikTok et Reels). Réglé dans la
+  fenêtre d'export (`features/watermark/`).
 - **Vitesse** (`MediaClip.speed`, 0,5/1/1,5/2) : `sourceTimeAt = inPoint + (t - start) × vitesse` ;
   changer la vitesse garde le passage de la source et adapte la durée (`setClipSpeed`,
   `changeClipSpeed` qui déplace le clip si une piste libre déborde). Aperçu : `playbackRate`
@@ -238,7 +244,8 @@ Ajouts demandés par l'utilisateur (20/10/2026), hors cahier des charges initial
   `convertToBlob` sont différés jusqu'à 1–3 s par image dans certains navigateurs.
 - **PWA** : `vite-plugin-pwa` (Workbox, `generateSW`), mise à jour proposée à l'utilisateur
   (`app/UpdatePrompt.tsx`), tout est pré-mis en cache (FFmpeg compris) pour fonctionner hors ligne.
-  Icônes générées par `scripts/generate-icons.mjs` (sans dépendance) dans `public/`.
+  Icônes (`public/icon-*.png`, `apple-touch-icon.png`) tirées du logo de l'utilisateur (`src/assets/logo.png`,
+  fond transparent) sur fond couleur d'accent #4f46e5 ; version « maskable » avec logo réduit (zone sûre).
 - **Publication** : GitHub Pages via `.github/workflows/deploy.yml` à chaque envoi sur `main`
   (tests puis build avec `BASE_PATH=/nom-du-depot/`). GitHub Pages ne permet pas les en-têtes
   COOP/COEP : l'app n'en dépend pas (FFmpeg mono-thread, export vérifié sans isolation).

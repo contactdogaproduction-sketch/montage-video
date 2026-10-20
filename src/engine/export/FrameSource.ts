@@ -3,6 +3,7 @@ import { visibleLayers, type Layer, type SourceSlot } from '../../core/compositi
 import type { MediaInfo, Ms, Project } from '../../core/types';
 import { getMediaSource } from '../../store/mediaRegistry';
 import { createVideoElement, primeVideo, seekVideo, waitForEvent } from '../mediaElement';
+import { loadLogo } from '../logo';
 import { drawFrame, type SourceResolver } from '../render';
 import { putMask, requestMask } from '../segmentation';
 
@@ -66,7 +67,11 @@ export class FrameSource {
       putMask(canvas, mask);
       masked.add(key);
     }
-    drawFrame(ctx, this.project, t, resolve, undefined, (layer) => (masked.has(maskKey(layer)) ? (this.masks.get(maskKey(layer)) ?? null) : null));
+    const logo = this.project.watermark ? await loadLogo() : null;
+    drawFrame(ctx, this.project, t, resolve, {
+      masks: (layer) => (masked.has(maskKey(layer)) ? (this.masks.get(maskKey(layer)) ?? null) : null),
+      logo,
+    });
   }
 
   dispose(): void {

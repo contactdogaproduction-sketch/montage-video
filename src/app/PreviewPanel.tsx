@@ -1,5 +1,7 @@
 import { useEffect, useRef, useState } from 'react';
 import { fitContain } from '../core/geometry';
+import { projectDuration } from '../core/project';
+import { logoUrl } from '../engine/logo';
 import { PreviewPlayer } from '../engine/preview/PreviewPlayer';
 import { attachPlayer } from '../engine/preview/playback';
 import { SelectionOverlay } from '../features/transform/SelectionOverlay';
@@ -78,6 +80,13 @@ export function PreviewPanel() {
           style={{ width: size.width, height: size.height }}
           aria-label="Aperçu de la vidéo"
         />
+        {projectDuration(project) === 0 && (
+          // Projet vide : le logo en fond, et la marche à suivre.
+          <div className="pointer-events-none absolute inset-0 flex flex-col items-center justify-center gap-3 px-6 text-center">
+            <img src={logoUrl} alt="" className="w-1/3 max-w-40 opacity-40" />
+            <p className="text-sm text-neutral-300">Touchez « Importer » pour ajouter vos vidéos et photos.</p>
+          </div>
+        )}
         <SelectionOverlay width={size.width} />
       </div>
     </div>

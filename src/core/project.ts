@@ -15,6 +15,7 @@ import {
   type TrimEdge,
 } from './track';
 import type { AspectFormat, Clip, MediaInfo, Ms, Project, Track, TrackKind } from './types';
+import { DEFAULT_WATERMARK } from './watermark';
 
 export const MAIN_TRACK_ID = 'main';
 
@@ -65,6 +66,7 @@ export function createProject(id: string): Project {
     fps: 30,
     media: {},
     tracks: [createTrack(MAIN_TRACK_ID, 'main')],
+    watermark: DEFAULT_WATERMARK,
   };
 }
 

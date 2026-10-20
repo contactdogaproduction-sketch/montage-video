@@ -1,3 +1,4 @@
+import { logoUrl } from '../engine/logo';
 import { ExportButton } from '../features/export/ExportButton';
 import { useSessionStore } from '../features/projects/session';
 import { useProjectStore } from '../store/projectStore';
@@ -29,7 +30,10 @@ export function TopBar() {
           Rétablir
         </button>
       </div>
-      <h1 className="min-w-0 flex-1 truncate text-center text-sm font-semibold text-neutral-800">{name}</h1>
+      <h1 className="flex min-w-0 flex-1 items-center justify-center gap-1.5 text-sm font-semibold text-neutral-800">
+        <img src={logoUrl} alt="" className="h-6 w-6 shrink-0 rounded-md bg-neutral-900 object-contain p-0.5" />
+        <span className="truncate">{name}</span>
+      </h1>
       <ExportButton />
     </header>
   );

@@ -2,6 +2,7 @@ import { useEffect } from 'react';
 import { ProjectsScreen } from '../features/projects/ProjectsScreen';
 import { startSession, useSessionStore } from '../features/projects/session';
 import { Timeline } from '../features/timeline/Timeline';
+import { logoUrl } from '../engine/logo';
 import { useProjectStore } from '../store/projectStore';
 import { Toaster } from '../ui/Toaster';
 import { AppSection } from './AppSection';
@@ -29,7 +30,12 @@ export function App() {
   }, []);
 
   if (status === 'loading') {
-    return <div className="flex h-dvh items-center justify-center bg-white text-sm text-neutral-500">Ouverture du projet…</div>;
+    return (
+      <div className="flex h-dvh flex-col items-center justify-center gap-4 bg-white text-sm text-neutral-500">
+        <img src={logoUrl} alt="" className="h-24 w-24 rounded-3xl bg-accent object-contain p-4 shadow-sm" />
+        Ouverture du projet…
+      </div>
+    );
   }
 
   return (

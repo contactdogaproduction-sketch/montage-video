@@ -1,5 +1,6 @@
 import { useEffect, useState, type ReactNode } from 'react';
 import { formatDate, formatTime } from '../../core/time';
+import { logoUrl } from '../../engine/logo';
 import { listProjects, storageUsage, type ProjectSummary } from '../../store/persistence';
 import { useProject } from '../../store/projectStore';
 import { CloseIcon, PlusIcon } from '../../ui/icons';
@@ -42,7 +43,9 @@ export function ProjectsScreen({ footer }: { footer?: ReactNode }) {
           Fermer
         </button>
       </header>
-      <div className="flex-1 overflow-y-auto px-4 py-4">
+      {/* Logo en fond, très discret, derrière la liste. */}
+      <img src={logoUrl} alt="" aria-hidden="true" className="pointer-events-none fixed top-1/2 left-1/2 w-[70vmin] -translate-x-1/2 -translate-y-1/2 opacity-[0.06]" />
+      <div className="relative flex-1 overflow-y-auto px-4 py-4">
         <button
           type="button"
           onClick={() => void run(createNewProject(), true)}
