@@ -1,6 +1,6 @@
 import { clipGainAt, trackFades } from './audio';
-import { findClipAt } from './track';
-import { transitionAt, transitionLayers, type LayerEffect } from './transition';
+import { clipEnd } from './clip';
+import { transitionAt, transitionLayers, type LayerEffect, type TransitionState } from './transition';
 import type { Clip, MediaClip, Ms, Project, Track } from './types';
 
 /**
@@ -19,6 +19,35 @@ export interface Layer {
 
 const sameMedia = (a: Clip, b: Clip) => a.type === 'media' && b.type === 'media' && a.mediaId === b.mediaId;
 
+/**
+ * Lecteur du clip n° `index` de la piste : deux clips qui se suivent sur une piste et viennent
+ * d'une même source alternent entre les deux lecteurs. Le suivant peut ainsi être prêt à sa
+ * première image pendant que le précédent joue (coupe sans attente), et les deux sont visibles
+ * ensemble pendant une transition.
+ */
+export function clipSlot(track: Track, index: number): SourceSlot {
+  let slot: SourceSlot = 0;
+  for (let i = 1; i <= index; i++) {
+    const previous = track.clips[i - 1];
+    const clip = track.clips[i];
+    slot = previous && clip && sameMedia(previous, clip) ? (slot === 0 ? 1 : 0) : 0;
+  }
+  return slot;
+}
+
+/** Clip en cours sur la piste au temps `t`, avec son lecteur. */
+function clipAt(track: Track, t: Ms): { clip: Clip; slot: SourceSlot } | null {
+  const index = track.clips.findIndex((clip) => clip.start <= t && t < clipEnd(clip));
+  const clip = track.clips[index];
+  return clip ? { clip, slot: clipSlot(track, index) } : null;
+}
+
+/** Les deux clips d'une transition, avec leurs lecteurs. */
+function transitionClips(track: Track, transition: TransitionState): { from: SourceSlot; to: SourceSlot } {
+  const index = track.clips.indexOf(transition.from);
+  return { from: clipSlot(track, index), to: clipSlot(track, index + 1) };
+}
+
 /** Couches visibles au temps `t`, de la plus basse à la plus haute (les pistes audio sont ignorées). */
 export function visibleLayers(project: Project, t: Ms): Layer[] {
   const layers: Layer[] = [];
@@ -26,15 +55,15 @@ export function visibleLayers(project: Project, t: Ms): Layer[] {
     if (track.kind === 'audio') continue;
     const transition = track.kind === 'main' ? transitionAt(track, t) : null;
     if (transition) {
-      const toSlot: SourceSlot = sameMedia(transition.from, transition.to) ? 1 : 0;
+      const slots = transitionClips(track, transition);
       for (const layer of transitionLayers(transition.transition.type, transition.progress)) {
         const clip = layer.which === 'from' ? transition.from : transition.to;
-        layers.push({ track, clip, slot: layer.which === 'to' ? toSlot : 0, effect: layer.effect });
+        layers.push({ track, clip, slot: slots[layer.which], effect: layer.effect });
       }
       continue;
     }
-    const clip = findClipAt(track, t);
-    if (clip) layers.push({ track, clip, slot: 0, effect: null });
+    const current = clipAt(track, t);
+    if (current) layers.push({ track, clip: current.clip, slot: current.slot, effect: null });
   }
   return layers;
 }
@@ -52,15 +81,17 @@ export function activeMediaClips(project: Project, t: Ms): AudibleClip[] {
   const result: AudibleClip[] = [];
   for (const track of project.tracks) {
     const transition = track.kind === 'main' ? transitionAt(track, t) : null;
-    const current = transition ? null : findClipAt(track, t);
-    const clips: { clip: Clip; slot: SourceSlot }[] = transition
-      ? [
-          { clip: transition.from, slot: 0 },
-          { clip: transition.to, slot: sameMedia(transition.from, transition.to) ? 1 : 0 },
-        ]
-      : current
-        ? [{ clip: current, slot: 0 }]
-        : [];
+    const slots = transition ? transitionClips(track, transition) : null;
+    const current = transition ? null : clipAt(track, t);
+    const clips: { clip: Clip; slot: SourceSlot }[] =
+      transition && slots
+        ? [
+            { clip: transition.from, slot: slots.from },
+            { clip: transition.to, slot: slots.to },
+          ]
+        : current
+          ? [current]
+          : [];
     for (const { clip, slot } of clips) {
       if (clip.type !== 'media') continue;
       const media = project.media[clip.mediaId];

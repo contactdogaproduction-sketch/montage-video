@@ -163,12 +163,81 @@ function drawText(ctx: Context2D, clip: TextClip): void {
   });
 }
 
-function drawSticker(ctx: Context2D, project: Project, layer: Layer, clip: StickerClip, resolve: SourceResolver): void {
+function drawEmoji(ctx: Context2D, emoji: string): void {
+  ctx.font = EMOJI_FONT;
+  ctx.textAlign = 'center';
+  ctx.textBaseline = 'middle';
+  ctx.fillText(emoji, 0, 0);
+}
+
+/**
+ * Images des textes et des emojis déjà dessinés, pour l'aperçu : dessiner un texte avec un gros
+ * contour est coûteux sur téléphone, alors que recopier une image ne l'est pas. Chaque image est
+ * calculée à la résolution de l'écran (et au double, au quadruple… pour les agrandissements).
+ */
+export class SpriteCache {
+  private readonly sprites = new Map<string, HTMLCanvasElement>();
+  /** Pixels de l'écran par pixel du cadre. */
+  pixelScale = 1;
+
+  constructor(private readonly capacity = 24) {}
+
+  /** Dessine l'élément centré sur l'origine, depuis le cache si possible. */
+  draw(ctx: Context2D, key: string, width: number, height: number, resolution: number, paint: (target: Context2D) => void): void {
+    // Résolution arrondie à la puissance de 2 supérieure : peu de variantes pendant un zoom animé.
+    const level = 2 ** Math.ceil(Math.log2(Math.max(1, resolution)));
+    const pixels = Math.min(level, 4) * this.pixelScale;
+    const id = `${key}|${pixels}`;
+    let sprite = this.sprites.get(id);
+    if (sprite) {
+      this.sprites.delete(id);
+    } else {
+      sprite = document.createElement('canvas');
+      sprite.width = Math.max(1, Math.ceil(width * pixels));
+      sprite.height = Math.max(1, Math.ceil(height * pixels));
+      const target = sprite.getContext('2d');
+      if (!target) return;
+      target.setTransform(pixels, 0, 0, pixels, sprite.width / 2, sprite.height / 2);
+      paint(target);
+    }
+    this.sprites.set(id, sprite);
+    // Taille exacte de l'image (arrondie au pixel) : pas de rééchantillonnage qui adoucirait le texte.
+    const w = sprite.width / pixels;
+    const h = sprite.height / pixels;
+    ctx.drawImage(sprite, -w / 2, -h / 2, w, h);
+    for (const [oldest, old] of this.sprites) {
+      if (this.sprites.size <= this.capacity) break;
+      // Safari libère la mémoire d'un canvas seulement quand sa taille est remise à zéro.
+      old.width = 0;
+      old.height = 0;
+      this.sprites.delete(oldest);
+    }
+  }
+  clear(): void {
+    for (const sprite of this.sprites.values()) {
+      sprite.width = 0;
+      sprite.height = 0;
+    }
+    this.sprites.clear();
+  }
+}
+
+/** Marge autour d'un texte dans son image (jambages et boucles des polices manuscrites). */
+const TEXT_MARGIN = 0.5;
+
+function drawTextCached(ctx: Context2D, project: Project, clip: TextClip, resolution: number, sprites: SpriteCache): void {
+  const { style } = clip;
+  const { width, height } = baseSize(project, clip);
+  const margin = style.size * TEXT_MARGIN;
+  const key = `t|${style.font}|${style.size}|${style.color}|${style.strokeColor}|${style.strokeWidth}|${clip.text}`;
+  sprites.draw(ctx, key, width + margin * 2, height + margin * 2, resolution, (target) => drawText(target, clip));
+}
+
+function drawSticker(ctx: Context2D, project: Project, layer: Layer, clip: StickerClip, resolve: SourceResolver, resolution: number, sprites?: SpriteCache): void {
   if (clip.source.kind === 'emoji') {
-    ctx.font = EMOJI_FONT;
-    ctx.textAlign = 'center';
-    ctx.textBaseline = 'middle';
-    ctx.fillText(clip.source.emoji, 0, 0);
+    const { emoji } = clip.source;
+    if (sprites) sprites.draw(ctx, `e|${emoji}`, STICKER_BASE * 1.2, STICKER_BASE * 1.2, resolution, (target) => drawEmoji(target, emoji));
+    else drawEmoji(ctx, emoji);
     return;
   }
   const media = project.media[clip.source.mediaId];
@@ -181,8 +250,9 @@ function drawSticker(ctx: Context2D, project: Project, layer: Layer, clip: Stick
 /**
  * Dessine l'image du projet au temps `t`, dans le repère du projet (width × height).
  * Partagé par l'aperçu et l'export : ce qu'on voit est ce qu'on exporte.
+ * `sprites` (aperçu) : textes et emojis recopiés depuis un cache ; l'export les dessine directement.
  */
-export function drawFrame(ctx: Context2D, project: Project, t: Ms, resolve: SourceResolver): void {
+export function drawFrame(ctx: Context2D, project: Project, t: Ms, resolve: SourceResolver, sprites?: SpriteCache): void {
   ctx.fillStyle = '#000';
   ctx.fillRect(0, 0, project.width, project.height);
   for (const layer of visibleLayers(project, t)) {
@@ -198,12 +268,17 @@ export function drawFrame(ctx: Context2D, project: Project, t: Ms, resolve: Sour
         withTransform(ctx, project, transform, effect, () => drawImageBlurred(ctx, source, width, height, effect?.blur ?? 0));
         break;
       }
-      case 'sticker':
-        withTransform(ctx, project, transform, effect, () => drawSticker(ctx, project, layer, clip, resolve));
+      case 'sticker': {
+        const resolution = transform.scale * (effect?.scale ?? 1);
+        withTransform(ctx, project, transform, effect, () => drawSticker(ctx, project, layer, clip, resolve, resolution, sprites));
         break;
-      case 'text':
-        if (clip.text.trim() !== '') withTransform(ctx, project, transform, effect, () => drawText(ctx, clip));
+      }
+      case 'text': {
+        if (clip.text.trim() === '') break;
+        const resolution = transform.scale * (effect?.scale ?? 1);
+        withTransform(ctx, project, transform, effect, () => (sprites ? drawTextCached(ctx, project, clip, resolution, sprites) : drawText(ctx, clip)));
         break;
+      }
     }
   }
 }

@@ -161,7 +161,11 @@ Ajouts demandés par l'utilisateur (20/10/2026), hors cahier des charges initial
   le store ne reçoit le temps qu'à l'arrêt (rien n'est recalculé par React pendant la lecture).
   Canvas de l'aperçu limité à une densité de 2 ; éléments vidéo/audio attachés à la page dans un
   conteneur invisible (Safari iPhone décode mal les vidéos hors de la page) ; recalage des vidéos
-  seulement au-delà de 0,5 s d'écart.
+  seulement au-delà de 0,5 s d'écart, au plus une fois toutes les 1,5 s par lecteur. Aperçu dessiné à
+  30 images/s pendant la lecture ; horloge rapprochée en douceur du média maître ; textes et emojis
+  recopiés depuis un cache d'images (`SpriteCache`, aperçu seulement : l'export les dessine
+  directement). Deux morceaux successifs d'une même vidéo alternent entre deux lecteurs
+  (`clipSlot`) : le suivant est prêt avant la coupe.
 - **Modèle Whisper gardé chargé** : le worker reste ouvert entre deux transcriptions et le modèle se
   prépare dès l'ouverture de la fenêtre « Sous-titres » (`prepareTranscriber`, `useModelStore`).
   Sur iPhone en `http://` (réseau local), Safari n'a pas de Cache API : le modèle est retéléchargé à

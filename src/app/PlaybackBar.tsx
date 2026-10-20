@@ -18,7 +18,9 @@ export function PlaybackBar() {
   useEffect(
     () =>
       onPlaybackTime((t) => {
-        if (timeRef.current) timeRef.current.textContent = `${formatTime(t)} / ${formatTime(duration)}`;
+        const text = `${formatTime(t)} / ${formatTime(duration)}`;
+        // Texte modifié seulement quand il change (chaque modification recalcule la mise en page).
+        if (timeRef.current && timeRef.current.textContent !== text) timeRef.current.textContent = text;
       }),
     [duration],
   );

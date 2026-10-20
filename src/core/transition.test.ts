@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { trackFades } from './audio';
 import { splitClip } from './clip';
-import { activeMediaClips, visibleLayers } from './composition';
+import { activeMediaClips, clipSlot, visibleLayers } from './composition';
 import { addMedia, createProject, getMainTrack, moveClip, placeClip, projectDuration, removeClipFromProject, replaceTrack, updateClip } from './project';
 import { AUDIO, VIDEO, mediaClip, track } from './testUtils';
 import { appendClips, packClips } from './track';
@@ -68,6 +68,21 @@ describe('déroulé', () => {
     const same = updateClip(p, 'b', (c) => ({ ...c, mediaId: 'v' }));
     expect(visibleLayers(same, 2500).map((l) => l.slot)).toEqual([0, 1]);
     expect(visibleLayers(p, 2500).map((l) => l.slot)).toEqual([0, 0]);
+  });
+  it('alterne les lecteurs entre les morceaux successifs d’une même vidéo, sans transition', () => {
+    const base = addMedia(createProject('p'), [VIDEO, { ...VIDEO, id: 'w' }]);
+    const clips = [
+      mediaClip('a', { duration: 1000 }),
+      mediaClip('b', { duration: 1000, inPoint: 2000 }),
+      mediaClip('c', { duration: 1000, inPoint: 4000 }),
+      mediaClip('d', { mediaId: 'w', duration: 1000 }),
+      mediaClip('e', { duration: 1000, inPoint: 6000 }),
+    ];
+    const cut = replaceTrack(base, appendClips(getMainTrack(base), clips));
+    const main = getMainTrack(cut);
+    expect(main.clips.map((_, i) => clipSlot(main, i))).toEqual([0, 1, 0, 0, 0]);
+    expect(visibleLayers(cut, 1500).map((l) => l.slot)).toEqual([1]);
+    expect(activeMediaClips(cut, 1500).map((a) => a.slot)).toEqual([1]);
   });
   it('croise le son des deux clips', () => {
     const gains = activeMediaClips(p, 2500).map((a) => [a.clip.id, a.gain]);

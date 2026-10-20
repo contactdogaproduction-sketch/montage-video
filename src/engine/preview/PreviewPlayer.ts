@@ -1,15 +1,24 @@
 import { clipMediaId, sourceTimeAt } from '../../core/clip';
-import { activeMediaClips, visibleLayers, type Layer, type SourceSlot } from '../../core/composition';
+import { activeMediaClips, visibleLayers, type AudibleClip, type Layer, type SourceSlot } from '../../core/composition';
 import { projectDuration } from '../../core/project';
 import type { MediaInfo, Ms, Project } from '../../core/types';
 import { getMediaSource } from '../../store/mediaRegistry';
 import { loadFonts } from '../fonts';
 import { createVideoElement, primeVideo } from '../mediaElement';
-import { drawFrame } from '../render';
+import { SpriteCache, drawFrame } from '../render';
 
 /** Écart toléré entre l'horloge et un média avant de forcer un repositionnement (s). */
 // Un repositionnement provoque un à-coup visible : on ne recale qu'au-delà d'un écart net.
 const RESYNC_THRESHOLD_S = 0.5;
+/** Après un repositionnement, délai avant d'en autoriser un autre sur le même lecteur (ms). */
+// Sans ce délai, un téléphone qui décode trop lentement enchaîne les repositionnements et n'avance plus.
+const RESYNC_COOLDOWN_MS = 1500;
+/** Avance donnée à un repositionnement en lecture : le temps que le lecteur retrouve l'image (s). */
+const RESYNC_LEAD_S = 0.15;
+/** Écart avec le média maître en deçà duquel l'horloge n'est pas corrigée (ms). */
+const CLOCK_TOLERANCE_MS = 40;
+/** Part de l'écart avec le média maître rattrapée à chaque image (correction en douceur). */
+const CLOCK_CORRECTION = 0.15;
 /** Délai avant le début d'un clip pour préparer son média (ms). */
 const PRELOAD_MS = 1000;
 
@@ -30,6 +39,13 @@ export class PreviewPlayer {
   private readonly players = new Map<string, HTMLMediaElement>();
   private readonly images = new Map<string, HTMLImageElement>();
   private readonly gains = new Map<string, GainNode>();
+  /** Dernier niveau appliqué à chaque lecteur (modifier un gain à chaque image fait grésiller Safari). */
+  private readonly levels = new Map<string, number>();
+  /** Instant (performance.now) avant lequel un lecteur ne doit pas être repositionné. */
+  private readonly resyncAfter = new Map<HTMLMediaElement, number>();
+  private readonly sprites = new SpriteCache();
+  /** Instant de la dernière image dessinée pendant la lecture. */
+  private lastFrameAt = 0;
   private audio: AudioContext | null = null;
   private project: Project;
   private time: Ms = 0;
@@ -60,8 +76,8 @@ export class PreviewPlayer {
     this.host.setAttribute('aria-hidden', 'true');
     this.host.style.cssText = 'position:fixed;left:0;top:0;width:1px;height:1px;overflow:hidden;opacity:0;pointer-events:none;';
     document.body.appendChild(this.host);
-    void loadFonts().then(this.markDirty);
-    document.fonts.addEventListener('loadingdone', this.markDirty);
+    void loadFonts().then(this.fontsChanged);
+    document.fonts.addEventListener('loadingdone', this.fontsChanged);
     this.frame = requestAnimationFrame(this.tick);
   }
 
@@ -116,7 +132,8 @@ export class PreviewPlayer {
 
   destroy(): void {
     cancelAnimationFrame(this.frame);
-    document.fonts.removeEventListener('loadingdone', this.markDirty);
+    document.fonts.removeEventListener('loadingdone', this.fontsChanged);
+    this.sprites.clear();
     for (const player of this.players.values()) {
       player.pause();
       player.removeAttribute('src');
@@ -125,6 +142,7 @@ export class PreviewPlayer {
     this.players.clear();
     this.images.clear();
     this.gains.clear();
+    this.levels.clear();
     this.host.remove();
     void this.audio?.close();
   }
@@ -136,6 +154,12 @@ export class PreviewPlayer {
   }
 
   private readonly markDirty = () => {
+    this.dirty = true;
+  };
+
+  /** Police chargée : les textes déjà mis en cache l'avaient été avec une police de secours. */
+  private readonly fontsChanged = () => {
+    this.sprites.clear();
     this.dirty = true;
   };
 
@@ -154,6 +178,9 @@ export class PreviewPlayer {
   private connect(key: string, player: HTMLMediaElement): void {
     if (!this.audio || this.gains.has(key)) return;
     const gain = this.audio.createGain();
+    // Muet tant que son clip n'a pas commencé (un lecteur préparé d'avance peut démarrer brièvement).
+    gain.gain.value = 0;
+    this.levels.delete(key);
     this.audio.createMediaElementSource(player).connect(gain).connect(this.audio.destination);
     this.gains.set(key, gain);
   }
@@ -217,21 +244,33 @@ export class PreviewPlayer {
     }
   }
 
-  private syncPlaying(t: Ms): void {
+  private syncPlaying(t: Ms, active: AudibleClip[] = activeMediaClips(this.project, t)): void {
     const used = new Set<HTMLMediaElement>();
-    for (const { clip, slot, gain } of activeMediaClips(this.project, t)) {
+    const now = performance.now();
+    for (const { clip, slot, gain } of active) {
       const media = this.project.media[clip.mediaId];
       const player = media ? this.player(media, slot) : null;
       if (!media || !player || used.has(player)) continue;
       used.add(player);
       const target = sourceTimeAt(clip, t) / 1000;
-      if (Math.abs(player.currentTime - target) > RESYNC_THRESHOLD_S * clip.speed) player.currentTime = target;
+      const drift = Math.abs(player.currentTime - target);
+      if (player.paused) {
+        // Démarrage : un lecteur préparé d'avance (à 50 ms près) part sans repositionnement.
+        if (drift > 0.05) player.currentTime = target;
+      } else if (drift > RESYNC_THRESHOLD_S * clip.speed && now >= (this.resyncAfter.get(player) ?? 0)) {
+        player.currentTime = target + RESYNC_LEAD_S * clip.speed;
+        this.resyncAfter.set(player, now + RESYNC_COOLDOWN_MS);
+      }
       // Vitesse du clip ; le navigateur garde la hauteur de la voix (preservesPitch, actif par défaut).
       if (player.playbackRate !== clip.speed) player.playbackRate = clip.speed;
-      const node = this.gains.get(playerKey(media.id, slot));
+      const key = playerKey(media.id, slot);
       const level = this.muted ? 0 : gain;
-      if (node) node.gain.value = level;
-      else player.volume = Math.min(1, level);
+      if (this.levels.get(key) !== level) {
+        this.levels.set(key, level);
+        const node = this.gains.get(key);
+        if (node) node.gain.value = level;
+        else player.volume = Math.min(1, level);
+      }
       if (player.paused) void player.play().catch(() => undefined);
     }
     for (const player of this.players.values()) if (!used.has(player) && !player.paused) player.pause();
@@ -247,7 +286,14 @@ export class PreviewPlayer {
   }
 
   private readonly tick = (now: number) => {
-    if (this.playing) this.advance(now);
+    if (this.playing) {
+      // Une image par image du projet (30 par seconde) : les vidéos n'en ont pas davantage, et
+      // dessiner à chaque rafraîchissement de l'écran (60 à 120 par seconde) doublerait le travail.
+      if (now - this.lastFrameAt >= 1000 / this.project.fps - 4) {
+        this.lastFrameAt = now;
+        this.advance(now);
+      }
+    }
     if (this.dirty) {
       this.dirty = false;
       this.draw();
@@ -258,13 +304,16 @@ export class PreviewPlayer {
   private advance(now: number): void {
     let t = this.anchorTime + (now - this.anchorNow);
 
-    // Le premier média en cours sert d'horloge maître quand il joue normalement (évite la dérive son/image).
+    // Le premier média en cours sert d'horloge maître quand il joue normalement (évite la dérive
+    // son/image). L'horloge le rejoint en douceur : se caler d'un coup sur son temps, mis à jour
+    // par à-coups dans certains navigateurs, ferait avancer l'image de façon irrégulière.
     const master = activeMediaClips(this.project, this.time)[0];
     const player = master ? this.players.get(playerKey(master.clip.mediaId, master.slot)) : undefined;
     if (master && player && !player.paused && !player.seeking && player.readyState >= 2) {
       const mediaTime = master.clip.start + (player.currentTime * 1000 - master.clip.inPoint) / master.clip.speed;
-      if (Math.abs(mediaTime - t) < 500) {
-        t = mediaTime;
+      const drift = mediaTime - t;
+      if (Math.abs(drift) > CLOCK_TOLERANCE_MS && Math.abs(drift) < 500) {
+        t += drift * CLOCK_CORRECTION;
         this.anchorTime = t;
         this.anchorNow = now;
       }
@@ -278,6 +327,8 @@ export class PreviewPlayer {
       this.callbacks.onEnded();
       return;
     }
+    // Le temps ne recule jamais pendant la lecture (un retour en arrière fige l'image un instant).
+    t = Math.max(t, this.time);
     this.time = t;
     this.syncPlaying(t);
     this.callbacks.onTime(t);
@@ -290,7 +341,9 @@ export class PreviewPlayer {
       return img?.complete && img.naturalWidth > 0 ? img : null;
     }
     const player = this.player(media, layer.slot);
-    return player instanceof HTMLVideoElement && player.readyState >= 2 && !player.seeking ? player : null;
+    // En lecture, une vidéo qui se repositionne garde son image précédente : on la dessine quand
+    // même, plutôt que de figer toute l'image.
+    return player instanceof HTMLVideoElement && player.readyState >= 2 && (this.playing || !player.seeking) ? player : null;
   }
 
   private draw(): void {
@@ -303,7 +356,12 @@ export class PreviewPlayer {
       const media = mediaId ? project.media[mediaId] : undefined;
       if (media && media.kind !== 'audio' && !this.readySource(layer, media)) return;
     }
-    ctx.setTransform(canvas.width / project.width, 0, 0, canvas.height / project.height, 0, 0);
-    drawFrame(ctx, project, t, (layer, media) => this.readySource(layer, media));
+    const scale = canvas.width / project.width;
+    if (this.sprites.pixelScale !== scale) {
+      this.sprites.clear();
+      this.sprites.pixelScale = scale;
+    }
+    ctx.setTransform(scale, 0, 0, canvas.height / project.height, 0, 0);
+    drawFrame(ctx, project, t, (layer, media) => this.readySource(layer, media), this.sprites);
   }
 }

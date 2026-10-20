@@ -17,6 +17,11 @@ const ZOOM_FACTOR = 1.5;
 /** Graduations affichées au-delà de la fin du projet, en pixels. */
 const RULER_EXTRA_PX = 300;
 
+/** Place le curseur par une transformation (sans recalcul de la mise en page de la timeline). */
+function placePlayhead(line: HTMLElement, x: number): void {
+  line.style.transform = `translateX(${x}px) translateX(-50%)`;
+}
+
 export function Timeline() {
   const project = useProject();
   const playhead = useEditorStore((s) => s.playhead);
@@ -60,7 +65,7 @@ export function Timeline() {
 
   // Position du curseur à l'arrêt (pendant la lecture, c'est l'horloge ci-dessous qui le déplace).
   useLayoutEffect(() => {
-    if (playheadRef.current && !useEditorStore.getState().playing) playheadRef.current.style.left = `${playheadX}px`;
+    if (playheadRef.current && !useEditorStore.getState().playing) placePlayhead(playheadRef.current, playheadX);
   }, [playheadX]);
 
   // Pendant la lecture : le curseur avance à chaque image et la timeline défile, sans re-rendu de React.
@@ -71,7 +76,7 @@ export function Timeline() {
         const line = playheadRef.current;
         if (!el || !line) return;
         const x = OFFSET + (t / 1000) * useEditorStore.getState().pxPerSecond;
-        line.style.left = `${x}px`;
+        placePlayhead(line, x);
         if (x < el.scrollLeft || x > el.scrollLeft + el.clientWidth - 24) el.scrollLeft = x - el.clientWidth * 0.25;
       }),
     [],
@@ -250,7 +255,7 @@ export function Timeline() {
             <div className="pointer-events-none absolute top-7 bottom-0 z-30 w-px bg-amber-500" style={{ left: toX(position.snappedTo) }} />
           )}
 
-          <div ref={playheadRef} className="pointer-events-none absolute top-0 bottom-0 z-30 w-0.5 -translate-x-1/2 bg-neutral-900">
+          <div ref={playheadRef} className="pointer-events-none absolute top-0 bottom-0 left-0 z-30 w-0.5 bg-neutral-900">
             <div className="absolute -top-0.5 left-1/2 h-3 w-3 -translate-x-1/2 rounded-full bg-neutral-900" />
           </div>
         </div>
