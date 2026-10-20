@@ -212,7 +212,9 @@ Ajouts demandés par l'utilisateur (20/10/2026), hors cahier des charges initial
   vidéo (`captureVideoFrame`), insérée au curseur (2 s) en coupant la vidéo ; la suite est décalée.
 - **Voix off** (`features/voiceover/`) : MediaRecorder sur le micro, converti en WAV à l'arrêt,
   placé sur une piste audio à l'instant réel du début de l'enregistrement ; la lecture démarre dans
-  le geste (Safari), son de l'aperçu coupé par défaut (`setPreviewMuted`). Micro disponible
+  le geste (Safari), son de l'aperçu coupé par défaut (`setPreviewMuted`). Session audio de l'iPhone en
+  `play-and-record` pendant l'enregistrement (`engine/audioSession.ts`) : en `playback` (réglage de l'aperçu
+  pour le mode silencieux), l'iPhone refuse ou coupe le micro. Enregistrement muet détecté et signalé. Micro disponible
   seulement en https ou localhost.
 - **Installation et hors ligne** (`features/install/`, `features/subtitles/ModelDownloads.tsx`,
   section « Application » en bas de « Mes projets ») : bouton d'installation (`beforeinstallprompt`

@@ -1,4 +1,20 @@
+import { setRecordingAudioSession } from '../../engine/audioSession';
 import { encodeWav } from '../../engine/export/wav';
+
+/** Enregistrement terminé mais sans aucun son capté (micro coupé ou pris par une autre app). */
+export class SilentRecordingError extends Error {}
+
+/** Niveau maximal sous lequel un enregistrement est considéré comme muet. */
+const SILENCE_PEAK = 0.002;
+
+function peakLevel(audio: AudioBuffer): number {
+  let peak = 0;
+  for (let c = 0; c < audio.numberOfChannels; c++) {
+    const data = audio.getChannelData(c);
+    for (let i = 0; i < data.length; i++) peak = Math.max(peak, Math.abs(data[i] ?? 0));
+  }
+  return peak;
+}
 
 /** Vrai si le navigateur peut utiliser le micro (contexte sécurisé : https ou localhost). */
 export function canRecord(): boolean {
@@ -17,9 +33,17 @@ export interface VoiceRecording {
  * WAV à l'arrêt : durée exacte, positionnement précis dans la vidéo, export sans conversion.
  */
 export async function startVoiceRecording(name: string): Promise<VoiceRecording> {
-  const stream = await navigator.mediaDevices.getUserMedia({
-    audio: { echoCancellation: true, noiseSuppression: true, autoGainControl: true },
-  });
+  // iPhone : la session audio de lecture seule (aperçu) empêche le micro d'enregistrer.
+  setRecordingAudioSession(true);
+  let stream: MediaStream;
+  try {
+    stream = await navigator.mediaDevices.getUserMedia({
+      audio: { echoCancellation: true, noiseSuppression: true, autoGainControl: true },
+    });
+  } catch (error) {
+    setRecordingAudioSession(false);
+    throw error;
+  }
   const recorder = new MediaRecorder(stream);
   const chunks: Blob[] = [];
   recorder.ondataavailable = (event) => {
@@ -30,6 +54,7 @@ export async function startVoiceRecording(name: string): Promise<VoiceRecording>
   });
   const release = () => {
     for (const track of stream.getTracks()) track.stop();
+    setRecordingAudioSession(false);
   };
   recorder.start();
 
@@ -41,6 +66,7 @@ export async function startVoiceRecording(name: string): Promise<VoiceRecording>
       const recorded = new Blob(chunks, { type: recorder.mimeType });
       const decoder = new OfflineAudioContext(1, 1, 48000);
       const audio = await decoder.decodeAudioData(await recorded.arrayBuffer());
+      if (peakLevel(audio) < SILENCE_PEAK) throw new SilentRecordingError();
       return new File([encodeWav(audio)], `${name}.wav`, { type: 'audio/wav' });
     },
     cancel: () => {
@@ -62,5 +88,6 @@ export function microphoneErrorMessage(error: unknown): string {
   }
   if (name === 'NotFoundError' || name === 'OverconstrainedError') return 'Aucun micro n’a été trouvé sur cet appareil. Branchez-en un (ou des écouteurs avec micro) et réessayez.';
   if (name === 'NotReadableError' || name === 'AbortError') return 'Le micro est déjà utilisé par une autre application (appel, autre onglet). Fermez-la et réessayez.';
-  return 'Le micro n’a pas pu démarrer. Réessayez ; si le problème continue, redémarrez l’application.';
+  // Nom technique de l'erreur affiché : il permet de comprendre ce qui bloque.
+  return `Le micro n’a pas pu démarrer (${name || (error instanceof Error ? error.name : 'erreur inconnue')}). Réessayez ; si le problème continue, fermez complètement l’application puis rouvrez-la.`;
 }

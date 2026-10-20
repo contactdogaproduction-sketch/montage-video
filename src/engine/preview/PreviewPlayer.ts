@@ -4,6 +4,7 @@ import { projectDuration } from '../../core/project';
 import { syncDecision } from '../../core/sync';
 import type { MediaInfo, Ms, Project } from '../../core/types';
 import { getMediaSource, onMediaPreview } from '../../store/mediaRegistry';
+import { setPlaybackAudioSession } from '../audioSession';
 import { loadFonts } from '../fonts';
 import { createVideoElement, primeVideo } from '../mediaElement';
 import { SpriteCache, drawFrame, type MaskResolver } from '../render';
@@ -201,8 +202,7 @@ export class PreviewPlayer {
   /** Crée le contexte audio (dans le geste de lecture) et y raccorde les éléments existants. */
   private ensureAudioGraph(): void {
     // iPhone : sans cela, le mode silencieux coupe le son passé par la Web Audio API.
-    const session = (navigator as Navigator & { audioSession?: { type: string } }).audioSession;
-    if (session) session.type = 'playback';
+    setPlaybackAudioSession();
     if (!this.audio) {
       this.audio = new AudioContext();
       for (const [key, player] of this.players) this.connect(key, player);

@@ -13,7 +13,7 @@ import { Segmented } from '../../ui/controls';
 import { Modal } from '../../ui/Modal';
 import { ToolButton } from '../../ui/ToolButton';
 import { readMedia } from '../import/readMedia';
-import { canRecord, microphoneErrorMessage, startVoiceRecording, type VoiceRecording } from './record';
+import { SilentRecordingError, canRecord, microphoneErrorMessage, startVoiceRecording, type VoiceRecording } from './record';
 
 const MicIcon = () => (
   <svg viewBox="0 0 24 24" width="22" height="22" fill="none" stroke="currentColor" strokeWidth={2} strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
@@ -96,8 +96,15 @@ export function VoiceOverButton() {
       useProjectStore.getState().commit((p) => placeClip(addMedia(p, [info]), clip, createId()));
       useEditorStore.getState().select(clip.id);
       setState({ status: 'closed' });
-    } catch {
-      setState({ status: 'error', message: 'L’enregistrement n’a pas pu être lu. Réessayez.' });
+    } catch (error) {
+      recording.current = null;
+      setState({
+        status: 'error',
+        message:
+          error instanceof SilentRecordingError
+            ? 'Aucun son n’a été capté par le micro. Vérifiez qu’aucune autre app ne l’utilise (appel, mémo vocal), retirez les écouteurs Bluetooth si besoin, puis réessayez.'
+            : `L’enregistrement n’a pas pu être lu (${error instanceof Error ? error.name : 'erreur inconnue'}). Réessayez.`,
+      });
     }
   };
 
