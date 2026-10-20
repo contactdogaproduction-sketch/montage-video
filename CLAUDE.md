@@ -179,8 +179,9 @@ Ajouts demandés par l'utilisateur (20/10/2026), hors cahier des charges initial
   `store/playbackClock.ts` (curseur de la timeline et compteur mis à jour directement dans le DOM) ;
   le store ne reçoit le temps qu'à l'arrêt (rien n'est recalculé par React pendant la lecture).
   Canvas de l'aperçu limité à une densité de 2 ; éléments vidéo/audio attachés à la page dans un
-  conteneur invisible (Safari iPhone décode mal les vidéos hors de la page) ; recalage des vidéos
-  seulement au-delà de 0,5 s d'écart, au plus une fois toutes les 1,5 s par lecteur. Pendant la lecture,
+  conteneur invisible (Safari iPhone décode mal les vidéos hors de la page) ; les vidéos secondaires
+  rattrapent leur écart en douceur (vitesse ±8 % dès 80 ms d'écart, `core/sync.ts`) ; repositionnement
+  seulement au-delà de 1 s d'écart, au plus une fois toutes les 1,5 s par lecteur. Pendant la lecture,
   l'aperçu est redessiné à chaque nouvelle image de la vidéo maître (`requestVideoFrameCallback`), sinon
   à 30 images/s ; tous les lecteurs du projet sont créés à l'arrêt (`mediaPlayers`), jamais en lecture ; horloge rapprochée en douceur du média maître ; textes et emojis
   recopiés depuis un cache d'images (`SpriteCache`, aperçu seulement : l'export les dessine

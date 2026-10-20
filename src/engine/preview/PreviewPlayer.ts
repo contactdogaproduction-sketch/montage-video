@@ -1,6 +1,7 @@
 import { clipMediaId, sourceTimeAt } from '../../core/clip';
 import { activeMediaClips, mediaPlayers, visibleLayers, type AudibleClip, type Layer, type SourceSlot } from '../../core/composition';
 import { projectDuration } from '../../core/project';
+import { syncDecision } from '../../core/sync';
 import type { MediaInfo, Ms, Project } from '../../core/types';
 import { getMediaSource, onMediaPreview } from '../../store/mediaRegistry';
 import { loadFonts } from '../fonts';
@@ -8,14 +9,13 @@ import { createVideoElement, primeVideo } from '../mediaElement';
 import { SpriteCache, drawFrame, type MaskResolver } from '../render';
 import { LiveMasks, loadSegmenter, segmenterReady } from '../segmentation';
 
-/** Écart toléré entre l'horloge et un média avant de forcer un repositionnement (s). */
-// Un repositionnement provoque un à-coup visible : on ne recale qu'au-delà d'un écart net.
-const RESYNC_THRESHOLD_S = 0.5;
 /** Après un repositionnement, délai avant d'en autoriser un autre sur le même lecteur (ms). */
 // Sans ce délai, un téléphone qui décode trop lentement enchaîne les repositionnements et n'avance plus.
 const RESYNC_COOLDOWN_MS = 1500;
 /** Avance donnée à un repositionnement en lecture : le temps que le lecteur retrouve l'image (s). */
 const RESYNC_LEAD_S = 0.15;
+/** Écart avec le média maître au-delà duquel l'horloge ne le suit plus (média bloqué) (ms). */
+const CLOCK_MAX_FOLLOW_MS = 1000;
 /** Écart avec le média maître en deçà duquel l'horloge n'est pas corrigée (ms). */
 const CLOCK_TOLERANCE_MS = 40;
 /** Part de l'écart avec le média maître rattrapée à chaque image (correction en douceur). */
@@ -60,6 +60,8 @@ export class PreviewPlayer {
   private readonly levels = new Map<string, number>();
   /** Instant (performance.now) avant lequel un lecteur ne doit pas être repositionné. */
   private readonly resyncAfter = new Map<HTMLMediaElement, number>();
+  /** Lecteurs en cours de rattrapage (légèrement ralentis ou accélérés). */
+  private readonly catchingUp = new Set<HTMLMediaElement>();
   private readonly sprites = new SpriteCache();
   // En lecture, le masque reçu sert à la prochaine image dessinée (pas de dessin en plus).
   private readonly masks = new LiveMasks(() => {
@@ -311,22 +313,32 @@ export class PreviewPlayer {
   private syncPlaying(t: Ms, active: AudibleClip[] = activeMediaClips(this.project, t)): void {
     const used = new Set<HTMLMediaElement>();
     const now = performance.now();
-    for (const { clip, slot, gain } of active) {
+    active.forEach(({ clip, slot, gain }, index) => {
       const media = this.project.media[clip.mediaId];
       const player = media ? this.player(media, slot) : null;
-      if (!media || !player || used.has(player)) continue;
+      if (!media || !player || used.has(player)) return;
       used.add(player);
       const target = sourceTimeAt(clip, t) / 1000;
-      const drift = Math.abs(player.currentTime - target);
+      const drift = player.currentTime - target;
+      // Vitesse du clip ; le navigateur garde la hauteur de la voix (preservesPitch, actif par défaut).
+      let rate = clip.speed;
       if (player.paused) {
         // Démarrage : un lecteur préparé d'avance (à 50 ms près) part sans repositionnement.
-        if (drift > 0.05) player.currentTime = target;
-      } else if (drift > RESYNC_THRESHOLD_S * clip.speed && now >= (this.resyncAfter.get(player) ?? 0)) {
-        player.currentTime = target + RESYNC_LEAD_S * clip.speed;
-        this.resyncAfter.set(player, now + RESYNC_COOLDOWN_MS);
+        if (Math.abs(drift) > 0.05) player.currentTime = target;
+        this.catchingUp.delete(player);
+      } else {
+        // Le média maître (le premier) donne l'horloge : il n'est repositionné que s'il est bloqué.
+        // Les autres rattrapent leur écart en douceur ; un repositionnement coupe l'image et le son.
+        const decision = syncDecision(drift, clip.speed, this.catchingUp.has(player));
+        if (index > 0) rate = decision.rate;
+        if (decision.catchingUp && index > 0) this.catchingUp.add(player);
+        else this.catchingUp.delete(player);
+        if (decision.seek && now >= (this.resyncAfter.get(player) ?? 0)) {
+          player.currentTime = target + RESYNC_LEAD_S * clip.speed;
+          this.resyncAfter.set(player, now + RESYNC_COOLDOWN_MS);
+        }
       }
-      // Vitesse du clip ; le navigateur garde la hauteur de la voix (preservesPitch, actif par défaut).
-      if (player.playbackRate !== clip.speed) player.playbackRate = clip.speed;
+      if (Math.abs(player.playbackRate - rate) > 0.001) player.playbackRate = rate;
       const key = playerKey(media.id, slot);
       const level = this.muted ? 0 : gain;
       if (this.levels.get(key) !== level) {
@@ -336,7 +348,7 @@ export class PreviewPlayer {
         else player.volume = Math.min(1, level);
       }
       if (player.paused) void player.play().catch(() => undefined);
-    }
+    });
     for (const player of this.players.values()) if (!used.has(player) && !player.paused) player.pause();
 
     // Prépare les médias des clips qui commencent bientôt, pour un enchaînement sans attente.
@@ -382,7 +394,7 @@ export class PreviewPlayer {
     if (master && player && !player.paused && !player.seeking && player.readyState >= 2) {
       const mediaTime = master.clip.start + (player.currentTime * 1000 - master.clip.inPoint) / master.clip.speed;
       const drift = mediaTime - t;
-      if (Math.abs(drift) > CLOCK_TOLERANCE_MS && Math.abs(drift) < 500) {
+      if (Math.abs(drift) > CLOCK_TOLERANCE_MS && Math.abs(drift) < CLOCK_MAX_FOLLOW_MS) {
         t += drift * CLOCK_CORRECTION;
         this.anchorTime = t;
         this.anchorNow = now;
