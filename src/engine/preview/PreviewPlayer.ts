@@ -1,5 +1,5 @@
 import { clipMediaId, sourceTimeAt } from '../../core/clip';
-import { activeMediaClips, visibleLayers, type AudibleClip, type Layer, type SourceSlot } from '../../core/composition';
+import { activeMediaClips, mediaPlayers, visibleLayers, type AudibleClip, type Layer, type SourceSlot } from '../../core/composition';
 import { projectDuration } from '../../core/project';
 import type { MediaInfo, Ms, Project } from '../../core/types';
 import { getMediaSource, onMediaPreview } from '../../store/mediaRegistry';
@@ -20,6 +20,14 @@ const RESYNC_LEAD_S = 0.15;
 const CLOCK_TOLERANCE_MS = 40;
 /** Part de l'écart avec le média maître rattrapée à chaque image (correction en douceur). */
 const CLOCK_CORRECTION = 0.15;
+/** Marge de la minuterie de secours : un écran limité à 30 Hz (économie d'énergie) dessine chaque image. */
+const TIMER_SLACK_MS = 8;
+/** Sans nouvelle image de la vidéo depuis ce délai, la minuterie de secours reprend (vidéo bloquée). */
+const VIDEO_FRAME_TIMEOUT_MS = 50;
+
+type FrameCallbackVideo = HTMLVideoElement & { requestVideoFrameCallback: (callback: () => void) => number };
+
+const hasFrameCallback = (video: HTMLVideoElement): video is FrameCallbackVideo => 'requestVideoFrameCallback' in video;
 /** Délai avant le début d'un clip pour préparer son média (ms). */
 const PRELOAD_MS = 1000;
 
@@ -53,12 +61,18 @@ export class PreviewPlayer {
   /** Instant (performance.now) avant lequel un lecteur ne doit pas être repositionné. */
   private readonly resyncAfter = new Map<HTMLMediaElement, number>();
   private readonly sprites = new SpriteCache();
+  // En lecture, le masque reçu sert à la prochaine image dessinée (pas de dessin en plus).
   private readonly masks = new LiveMasks(() => {
-    this.dirty = true;
+    if (!this.playing) this.dirty = true;
   });
   private segmenterRequested = false;
   /** Instant de la dernière image dessinée pendant la lecture. */
   private lastFrameAt = 0;
+  /** Vidéo qui donne la cadence du dessin (média maître), et arrivée de ses images. */
+  private masterVideo: HTMLVideoElement | null = null;
+  private videoFrameReady = false;
+  private lastVideoFrameAt = -Infinity;
+  private readonly watchedVideos = new WeakSet<HTMLVideoElement>();
   /** Médias dont la copie allégée a été créée ou supprimée, à basculer dès que la lecture s'arrête. */
   private readonly pendingPreviews = new Set<string>();
   private readonly stopPreviewListener: () => void;
@@ -278,6 +292,12 @@ export class PreviewPlayer {
   /** À l'arrêt : positionne les vidéos visibles sur la bonne image. */
   private syncPaused(): void {
     for (const player of this.players.values()) if (!player.paused) player.pause();
+    // Tous les lecteurs du projet sont créés à l'arrêt : en créer un pendant la lecture (morceau
+    // suivant, incrustation) bloque la page un instant (à-coup visible).
+    for (const { mediaId, slot } of mediaPlayers(this.project)) {
+      const media = this.project.media[mediaId];
+      if (media) this.player(media, slot);
+    }
     const t = this.displayTime();
     for (const { clip, slot } of activeMediaClips(this.project, t)) {
       const media = this.project.media[clip.mediaId];
@@ -331,11 +351,16 @@ export class PreviewPlayer {
 
   private readonly tick = (now: number) => {
     if (this.playing) {
-      // Une image par image du projet (30 par seconde) : les vidéos n'en ont pas davantage, et
-      // dessiner à chaque rafraîchissement de l'écran (60 à 120 par seconde) doublerait le travail.
-      if (now - this.lastFrameAt >= 1000 / this.project.fps - 4) {
+      this.advance(now);
+      // Dessin calé sur chaque nouvelle image de la vidéo maître : une minuterie fixe dérive par
+      // rapport aux images de la vidéo (images montrées deux fois puis sautées = saccades).
+      // Sans vidéo maître (ou si le navigateur ne signale pas ses images) : 30 images par seconde.
+      const paced = this.masterVideo !== null && now - this.lastVideoFrameAt < VIDEO_FRAME_TIMEOUT_MS;
+      const due = paced ? this.videoFrameReady : now - this.lastFrameAt >= 1000 / this.project.fps - TIMER_SLACK_MS;
+      if (this.playing && due) {
+        this.videoFrameReady = false;
         this.lastFrameAt = now;
-        this.advance(now);
+        this.dirty = true;
       }
     }
     if (this.dirty) {
@@ -353,6 +378,7 @@ export class PreviewPlayer {
     // par à-coups dans certains navigateurs, ferait avancer l'image de façon irrégulière.
     const master = activeMediaClips(this.project, this.time)[0];
     const player = master ? this.players.get(playerKey(master.clip.mediaId, master.slot)) : undefined;
+    this.setMasterVideo(player instanceof HTMLVideoElement && !player.paused ? player : null);
     if (master && player && !player.paused && !player.seeking && player.readyState >= 2) {
       const mediaTime = master.clip.start + (player.currentTime * 1000 - master.clip.inPoint) / master.clip.speed;
       const drift = mediaTime - t;
@@ -376,7 +402,22 @@ export class PreviewPlayer {
     this.time = t;
     this.syncPlaying(t);
     this.callbacks.onTime(t);
-    this.dirty = true;
+  }
+
+  /** Suit l'arrivée des images de la vidéo maître (une boucle par vidéo, qui s'arrête avec elle). */
+  private setMasterVideo(video: HTMLVideoElement | null): void {
+    this.masterVideo = video;
+    if (!video || !hasFrameCallback(video) || this.watchedVideos.has(video)) return;
+    this.watchedVideos.add(video);
+    const onFrame = () => {
+      if (video === this.masterVideo) {
+        this.videoFrameReady = true;
+        this.lastVideoFrameAt = performance.now();
+      }
+      if (video.isConnected) video.requestVideoFrameCallback(onFrame);
+      else this.watchedVideos.delete(video);
+    };
+    video.requestVideoFrameCallback(onFrame);
   }
 
   /** Masque de la personne pour une couche (détourage chargé à la première demande). */

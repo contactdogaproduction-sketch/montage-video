@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { trackFades } from './audio';
 import { splitClip } from './clip';
-import { activeMediaClips, clipSlot, visibleLayers } from './composition';
+import { activeMediaClips, clipSlot, mediaPlayers, visibleLayers } from './composition';
 import { addMedia, createProject, getMainTrack, moveClip, placeClip, projectDuration, removeClipFromProject, replaceTrack, updateClip } from './project';
 import { AUDIO, VIDEO, mediaClip, track } from './testUtils';
 import { appendClips, packClips } from './track';
@@ -83,6 +83,12 @@ describe('déroulé', () => {
     expect(main.clips.map((_, i) => clipSlot(main, i))).toEqual([0, 1, 0, 0, 0]);
     expect(visibleLayers(cut, 1500).map((l) => l.slot)).toEqual([1]);
     expect(activeMediaClips(cut, 1500).map((a) => a.slot)).toEqual([1]);
+    // Lecteurs à préparer avant la lecture : la vidéo « v » en a deux, « w » un seul.
+    expect(mediaPlayers(cut)).toEqual([
+      { mediaId: 'v', slot: 0 },
+      { mediaId: 'v', slot: 1 },
+      { mediaId: 'w', slot: 0 },
+    ]);
   });
   it('croise le son des deux clips', () => {
     const gains = activeMediaClips(p, 2500).map((a) => [a.clip.id, a.gain]);

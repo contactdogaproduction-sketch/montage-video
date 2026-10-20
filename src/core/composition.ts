@@ -35,6 +35,28 @@ export function clipSlot(track: Track, index: number): SourceSlot {
   return slot;
 }
 
+/**
+ * Lecteurs nécessaires à la lecture du projet : chaque source vidéo ou audio, avec chacun de ses
+ * lecteurs (deux pour les morceaux successifs d'une même source). Sans doublon.
+ */
+export function mediaPlayers(project: Project): { mediaId: string; slot: SourceSlot }[] {
+  const seen = new Set<string>();
+  const result: { mediaId: string; slot: SourceSlot }[] = [];
+  for (const track of project.tracks) {
+    track.clips.forEach((clip, index) => {
+      if (clip.type !== 'media') return;
+      const media = project.media[clip.mediaId];
+      if (!media || media.kind === 'image') return;
+      const slot = clipSlot(track, index);
+      const key = `${clip.mediaId}#${slot}`;
+      if (seen.has(key)) return;
+      seen.add(key);
+      result.push({ mediaId: clip.mediaId, slot });
+    });
+  }
+  return result;
+}
+
 /** Clip en cours sur la piste au temps `t`, avec son lecteur. */
 function clipAt(track: Track, t: Ms): { clip: Clip; slot: SourceSlot } | null {
   const index = track.clips.findIndex((clip) => clip.start <= t && t < clipEnd(clip));
