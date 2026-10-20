@@ -72,8 +72,9 @@ Ajouts demandés par l'utilisateur (20/10/2026), hors cahier des charges initial
 20. **Transitions à la mode** : flash blanc, balayage flou (whip pan), détourage + balayage (la personne
     reste devant pendant que le décor défile vers le clip suivant).
 21. **Supprimer l'arrière-plan** d'une vidéo ou d'une photo (détourage des personnes, sur l'appareil).
-22. **Logo de l'utilisateur** : icône de l'app (fond couleur d'accent), barre du haut, écran d'ouverture,
-    fond de l'aperçu vide et de « Mes projets », filigrane des vidéos (coin au choix, désactivable).
+22. **Logo de l'utilisateur** : icône de l'app (fond couleur d'accent), écran d'ouverture, aperçu vide,
+    motif de fond discret (logo + chevrons) derrière l'aperçu et « Mes projets », filigrane des vidéos
+    (coin au choix, désactivable). Pas de logo dans la barre du haut (choix de l'utilisateur : trop chargé).
 
 **Exclus** : effets spéciaux (hors filtres, transitions et détourage ci-dessus), comptes, cloud, modèles, IA générative.
 
@@ -164,7 +165,10 @@ Ajouts demandés par l'utilisateur (20/10/2026), hors cahier des charges initial
 - **Filigrane** (`Project.watermark` : coin ou `null`, `core/watermark.ts`) : logo à 14 % du petit côté du cadre,
   marge 5 %, opacité 85 %, dessiné par `drawFrame` au-dessus de tout (aperçu et export identiques).
   En haut à gauche par défaut (hors des boutons et légendes de TikTok et Reels). Réglé dans la
-  fenêtre d'export (`features/watermark/`).
+  fenêtre d'export (`features/watermark/`). Absent tant que le projet est vide.
+- **Motif de fond** (`app/brandPattern.ts`) : tuile de 240 px calculée au démarrage à partir du logo (logo
+  à 10 % d'opacité en quinconce avec des doubles chevrons couleur d'accent à 8 %), variable CSS
+  `--brand-pattern`, classe `.bg-brand-pattern`.
 - **Vitesse** (`MediaClip.speed`, 0,5/1/1,5/2) : `sourceTimeAt = inPoint + (t - start) × vitesse` ;
   changer la vitesse garde le passage de la source et adapte la durée (`setClipSpeed`,
   `changeClipSpeed` qui déplace le clip si une piste libre déborde). Aperçu : `playbackRate`

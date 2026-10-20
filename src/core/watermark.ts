@@ -25,9 +25,13 @@ export interface Rect {
   height: number;
 }
 
-/** Emplacement du logo dans le cadre (pixels du projet), ou `null` sans filigrane. `aspect` : largeur / hauteur du logo. */
+/**
+ * Emplacement du logo dans le cadre (pixels du projet), ou `null` sans filigrane (ou projet vide).
+ * `aspect` : largeur / hauteur du logo.
+ */
 export function watermarkRect(project: Project, aspect: number): Rect | null {
   if (!project.watermark || aspect <= 0) return null;
+  if (project.tracks.every((track) => track.clips.length === 0)) return null;
   const side = Math.min(project.width, project.height);
   const width = side * WATERMARK_SIZE;
   const height = width / aspect;
