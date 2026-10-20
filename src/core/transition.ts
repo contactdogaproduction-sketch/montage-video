@@ -5,7 +5,7 @@ export const MIN_TRANSITION: Ms = 200;
 export const MAX_TRANSITION: Ms = 2000;
 export const DEFAULT_TRANSITION: Ms = 500;
 
-export const TRANSITION_TYPES: TransitionType[] = ['fade', 'fade-black', 'slide', 'zoom', 'blur'];
+export const TRANSITION_TYPES: TransitionType[] = ['fade', 'fade-black', 'slide', 'zoom', 'blur', 'flash', 'whip'];
 
 /** Durée maximale d'une transition entre deux clips : la moitié du plus court, sans dépasser 2 s. */
 export function maxTransitionDuration(previous: Clip, next: Clip): Ms {
@@ -57,9 +57,18 @@ export interface LayerEffect {
   scale: number;
   /** Intensité du flou, de 0 (net) à 1. */
   blur: number;
+  /** Voile blanc posé sur tout le cadre après cette couche, de 0 à 1 (flash). */
+  flash: number;
+  /** Longueur du flou de mouvement horizontal, en fraction de la largeur du cadre (balayage). */
+  motionBlur: number;
 }
 
-const NEUTRAL: LayerEffect = { opacity: 1, offsetX: 0, scale: 1, blur: 0 };
+const NEUTRAL: LayerEffect = { opacity: 1, offsetX: 0, scale: 1, blur: 0, flash: 0, motionBlur: 0 };
+
+/** Accélération puis décélération marquées : mouvement très rapide au milieu (balayage). */
+export function easeInOutCubic(p: number): number {
+  return p < 0.5 ? 4 * p * p * p : 1 - (-2 * p + 2) ** 3 / 2;
+}
 
 export interface TransitionLayer {
   which: 'from' | 'to';
@@ -97,6 +106,20 @@ export function transitionLayers(type: TransitionType, progress: number): Transi
         { which: 'to', effect: { ...NEUTRAL, blur: Math.max(0, 1 - 2 * p) } },
         { which: 'from', effect: { ...NEUTRAL, blur: Math.min(1, 2 * p), opacity: 1 - p } },
       ];
+    case 'flash': {
+      // Le cadre blanchit jusqu'au milieu, où l'on passe au clip suivant, puis le blanc s'efface.
+      const flash = easeInOut(1 - Math.abs(2 * p - 1));
+      return p < 0.5 ? [{ which: 'from', effect: { ...NEUTRAL, flash } }] : [{ which: 'to', effect: { ...NEUTRAL, flash } }];
+    }
+    case 'whip': {
+      // Balayage : les deux images filent vers la gauche, floutées par la vitesse.
+      const move = easeInOutCubic(p);
+      const motionBlur = 0.35 * Math.sin(Math.PI * p);
+      return [
+        { which: 'from', effect: { ...NEUTRAL, offsetX: -move, motionBlur } },
+        { which: 'to', effect: { ...NEUTRAL, offsetX: 1 - move, motionBlur } },
+      ];
+    }
   }
 }
 
@@ -106,4 +129,6 @@ export const TRANSITION_LABELS: Record<TransitionType, string> = {
   slide: 'Glissement',
   zoom: 'Zoom',
   blur: 'Flou',
+  flash: 'Flash blanc',
+  whip: 'Balayage flou',
 };

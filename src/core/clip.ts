@@ -57,6 +57,7 @@ export function createMediaClip(id: string, media: MediaInfo, start: Ms, transfo
     transition: null,
     speed: 1,
     fit: 'contain',
+    filter: null,
   };
 }
 

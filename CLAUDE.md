@@ -67,8 +67,11 @@ Ajouts demandés par l'utilisateur (20/10/2026), hors cahier des charges initial
 16. **Figer l'image** d'une vidéo de la piste principale (image fixe insérée au curseur).
 17. **Aimant de la piste principale** activable/désactivable (espaces libres entre les rushs).
 18. **Sous-titres : qualité au choix** « Rapide » (whisper-base) ou « Précis » (whisper-small).
+19. **Filtres de couleur** par clip vidéo ou photo : N&B, Sépia, Pop, Film délavé (vignette et grain),
+    intensité réglable.
+20. **Transitions à la mode** : flash blanc, balayage flou (whip pan).
 
-**Exclus** : filtres de couleur, effets spéciaux, comptes, cloud, modèles, IA générative.
+**Exclus** : effets spéciaux (hors filtres et transitions ci-dessus), comptes, cloud, modèles, IA générative.
 
 ## Interface
 - Thème clair : fond blanc ou gris très clair, beaucoup d'espace, **une seule couleur d'accent**
@@ -140,6 +143,13 @@ Ajouts demandés par l'utilisateur (20/10/2026), hors cahier des charges initial
   visibles et les médias audibles (fondu croisé du son). Deux lecteurs par vidéo (« slot ») pour
   une transition entre deux morceaux d'une même vidéo. Flou par réduction/agrandissement
   (`ctx.filter` absent de Safari iPhone).
+- **Filtres** (`MediaClip.filter`, `core/filters.ts`) : chaque filtre est une liste d'opérations par modes de
+  fusion (`saturation`, `color`, `soft-light`, `lighten`, vignette, grain) appliquées par `engine/render.ts`
+  sur un canvas à part, à la résolution de l'écran ou de l'export (`ctx.filter` absent de Safari iPhone).
+  Grain pseudo-aléatoire fixe, décalé à chaque image : identique dans l'aperçu et à l'export.
+- **Flash blanc et balayage flou** : `LayerEffect.flash` (voile blanc sur tout le cadre, maximal au milieu,
+  où l'on passe au clip suivant) et `LayerEffect.motionBlur` (8 copies décalées et moyennées, mouvement
+  en `easeInOutCubic`).
 - **Vitesse** (`MediaClip.speed`, 0,5/1/1,5/2) : `sourceTimeAt = inPoint + (t - start) × vitesse` ;
   changer la vitesse garde le passage de la source et adapte la durée (`setClipSpeed`,
   `changeClipSpeed` qui déplace le clip si une piste libre déborde). Aperçu : `playbackRate`

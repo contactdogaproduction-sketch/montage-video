@@ -40,7 +40,7 @@ export interface Keyframe {
   easing: Easing;
 }
 
-export type TransitionType = 'fade' | 'fade-black' | 'slide' | 'zoom' | 'blur';
+export type TransitionType = 'fade' | 'fade-black' | 'slide' | 'zoom' | 'blur' | 'flash' | 'whip';
 
 /** Transition vers le clip suivant de la piste principale (les deux clips se chevauchent de `duration`). */
 export interface Transition {
@@ -76,6 +76,16 @@ export interface MediaClip extends ClipBase {
   speed: number;
   /** Cadrage dans le cadre : image entière (bandes) ou cadre rempli (image rognée). */
   fit: FitMode;
+  /** Filtre de couleur de l'image (vidéo ou photo), ou `null`. */
+  filter: ClipFilter | null;
+}
+
+export type FilterType = 'bw' | 'sepia' | 'pop' | 'film';
+
+export interface ClipFilter {
+  type: FilterType;
+  /** Intensité, de 0 (aucun effet) à 1. */
+  intensity: number;
 }
 
 export type FitMode = 'contain' | 'cover';

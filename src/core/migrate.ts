@@ -13,7 +13,7 @@ function migrateClip(raw: Raw): Clip | null {
   const base = { transform: CENTERED, keyframes: [], ...raw };
   switch (raw.type) {
     case 'media':
-      return { volume: 1, fadeIn: 0, fadeOut: 0, inPoint: 0, transition: null, speed: 1, fit: 'contain', ...base } as unknown as Clip;
+      return { volume: 1, fadeIn: 0, fadeOut: 0, inPoint: 0, transition: null, speed: 1, fit: 'contain', filter: null, ...base } as unknown as Clip;
     case 'text':
       return { text: '', animationIn: 'none', animationOut: 'none', subtitle: false, ...base, style: { ...DEFAULT_STYLE, ...(isObject(raw.style) ? raw.style : {}) } } as unknown as Clip;
     case 'sticker':

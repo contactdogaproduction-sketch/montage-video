@@ -22,6 +22,7 @@ export function mediaClip(id: string, over: Partial<MediaClip> = {}): MediaClip 
     transition: null,
     speed: 1,
     fit: 'contain',
+    filter: null,
     ...over,
   };
 }

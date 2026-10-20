@@ -1,10 +1,11 @@
 import { animatedTextTransform } from '../core/animation';
 import { visibleLayers, type Layer } from '../core/composition';
+import { filterOperations, type FilterOperation } from '../core/filters';
 import { cssFont } from '../core/fonts';
 import { fitContain, fitCover } from '../core/geometry';
 import { transformAtTime } from '../core/keyframes';
 import type { LayerEffect } from '../core/transition';
-import type { Clip, MediaInfo, Ms, Project, StickerClip, TextClip, Transform } from '../core/types';
+import type { Clip, ClipFilter, MediaInfo, Ms, Project, StickerClip, TextClip, Transform } from '../core/types';
 
 /** Côté du carré de base d'un sticker, en pixels du cadre (échelle 1). */
 export const STICKER_BASE = 320;
@@ -142,6 +143,131 @@ function drawImageBlurred(ctx: Context2D, source: CanvasImageSource, width: numb
   ctx.drawImage(blurCanvas, -width / 2, -height / 2, width, height);
 }
 
+let filterCanvas: HTMLCanvasElement | null = null;
+let grainTile: HTMLCanvasElement | null = null;
+/** Côté du motif de grain, en pixels. */
+const GRAIN_SIZE = 128;
+/** Copies superposées pour le flou de mouvement du balayage. */
+const MOTION_COPIES = 8;
+
+/** Pixels réels par unité du repère courant. */
+function deviceScale(ctx: Context2D): number {
+  const m = ctx.getTransform();
+  return Math.hypot(m.a, m.b) || 1;
+}
+
+/** Motif de grain : bruit gris, calculé une seule fois. */
+function grain(): HTMLCanvasElement | null {
+  if (grainTile) return grainTile;
+  const tile = document.createElement('canvas');
+  tile.width = GRAIN_SIZE;
+  tile.height = GRAIN_SIZE;
+  const g = tile.getContext('2d');
+  if (!g) return null;
+  const image = g.createImageData(GRAIN_SIZE, GRAIN_SIZE);
+  // Générateur pseudo-aléatoire fixe : le même grain dans l'aperçu et à l'export.
+  let seed = 12345;
+  for (let i = 0; i < image.data.length; i += 4) {
+    seed = (seed * 1103515245 + 12345) & 0x7fffffff;
+    const v = (seed >> 8) & 255;
+    image.data[i] = v;
+    image.data[i + 1] = v;
+    image.data[i + 2] = v;
+    image.data[i + 3] = 255;
+  }
+  g.putImageData(image, 0, 0);
+  grainTile = tile;
+  return tile;
+}
+
+function applyOperation(f: CanvasRenderingContext2D, canvas: HTMLCanvasElement, op: FilterOperation, t: Ms): void {
+  const { width, height } = canvas;
+  f.globalAlpha = op.alpha;
+  switch (op.kind) {
+    case 'fill':
+      f.globalCompositeOperation = op.blend;
+      f.fillStyle = op.color;
+      f.fillRect(0, 0, width, height);
+      break;
+    case 'self':
+      f.globalCompositeOperation = op.blend;
+      f.drawImage(canvas, 0, 0);
+      break;
+    case 'vignette': {
+      const radius = Math.hypot(width, height) / 2;
+      const gradient = f.createRadialGradient(width / 2, height / 2, radius * 0.45, width / 2, height / 2, radius);
+      gradient.addColorStop(0, 'rgba(0,0,0,0)');
+      gradient.addColorStop(1, 'rgba(0,0,0,1)');
+      f.globalCompositeOperation = 'source-over';
+      f.fillStyle = gradient;
+      f.fillRect(0, 0, width, height);
+      break;
+    }
+    case 'grain': {
+      const tile = grain();
+      const pattern = tile ? f.createPattern(tile, 'repeat') : null;
+      if (!pattern) break;
+      // Grain différent à chaque image de la vidéo (30 par seconde), identique d'un rendu à l'autre.
+      const frame = Math.floor(t / (1000 / 30));
+      f.save();
+      f.translate((frame * 37) % GRAIN_SIZE, (frame * 61) % GRAIN_SIZE);
+      f.globalCompositeOperation = 'overlay';
+      f.fillStyle = pattern;
+      f.fillRect(-GRAIN_SIZE, -GRAIN_SIZE, width + GRAIN_SIZE, height + GRAIN_SIZE);
+      f.restore();
+      break;
+    }
+  }
+}
+
+/**
+ * Image du clip avec son filtre (et le flou de transition), calculée à la résolution de
+ * l'écran ou de l'export, sur un canvas à part : le filtre ne touche pas ce qui est dessous.
+ */
+function filteredImage(ctx: Context2D, source: CanvasImageSource, width: number, height: number, blur: number, ops: FilterOperation[], t: Ms): CanvasImageSource {
+  filterCanvas ??= document.createElement('canvas');
+  const scale = deviceScale(ctx);
+  filterCanvas.width = Math.max(1, Math.min(4096, Math.ceil(width * scale)));
+  filterCanvas.height = Math.max(1, Math.min(4096, Math.ceil(height * scale)));
+  const f = filterCanvas.getContext('2d');
+  if (!f) return source;
+  f.setTransform(filterCanvas.width / width, 0, 0, filterCanvas.height / height, filterCanvas.width / 2, filterCanvas.height / 2);
+  drawImageBlurred(f, source, width, height, blur);
+  f.setTransform(1, 0, 0, 1, 0, 0);
+  for (const op of ops) applyOperation(f, filterCanvas, op, t);
+  // Les couleurs ajoutées ne doivent pas déborder sur les parties transparentes (PNG).
+  if (!(source instanceof HTMLVideoElement)) {
+    f.globalAlpha = 1;
+    f.globalCompositeOperation = 'destination-in';
+    f.drawImage(source, 0, 0, filterCanvas.width, filterCanvas.height);
+  }
+  f.globalAlpha = 1;
+  f.globalCompositeOperation = 'source-over';
+  return filterCanvas;
+}
+
+/**
+ * Image d'une vidéo ou d'une photo : filtre, flou de transition, et flou de mouvement
+ * (`streak` : longueur de la traînée, dans le repère de l'élément).
+ */
+function drawMedia(ctx: Context2D, source: CanvasImageSource, width: number, height: number, blur: number, filter: ClipFilter | null, streak: number, t: Ms): void {
+  const ops = filterOperations(filter);
+  const image = ops.length > 0 ? filteredImage(ctx, source, width, height, blur, ops, t) : source;
+  const remainingBlur = ops.length > 0 ? 0 : blur;
+  if (streak <= 0) {
+    drawImageBlurred(ctx, image, width, height, remainingBlur);
+    return;
+  }
+  // Flou de mouvement : copies décalées, moyennées (chaque copie pèse 1/n de l'image finale).
+  const alpha = ctx.globalAlpha;
+  for (let i = 0; i < MOTION_COPIES; i++) {
+    const dx = (i / (MOTION_COPIES - 1) - 0.5) * streak;
+    ctx.globalAlpha = alpha / (i + 1);
+    ctx.drawImage(image, -width / 2 + dx, -height / 2, width, height);
+  }
+  ctx.globalAlpha = alpha;
+}
+
 function drawText(ctx: Context2D, clip: TextClip): void {
   const { style } = clip;
   const lines = textLines(clip.text);
@@ -265,7 +391,9 @@ export function drawFrame(ctx: Context2D, project: Project, t: Ms, resolve: Sour
         const source = resolve(layer, media);
         if (!source) break;
         const { width, height } = baseSize(project, clip);
-        withTransform(ctx, project, transform, effect, () => drawImageBlurred(ctx, source, width, height, effect?.blur ?? 0));
+        const scale = transform.scale * (effect?.scale ?? 1);
+        const streak = scale > 0 ? ((effect?.motionBlur ?? 0) * project.width) / scale : 0;
+        withTransform(ctx, project, transform, effect, () => drawMedia(ctx, source, width, height, effect?.blur ?? 0, clip.filter, streak, t));
         break;
       }
       case 'sticker': {
@@ -280,5 +408,25 @@ export function drawFrame(ctx: Context2D, project: Project, t: Ms, resolve: Sour
         break;
       }
     }
+    if (effect && effect.flash > 0) {
+      ctx.save();
+      ctx.globalAlpha = Math.min(1, effect.flash);
+      ctx.fillStyle = '#fff';
+      ctx.fillRect(0, 0, project.width, project.height);
+      ctx.restore();
+    }
   }
+}
+
+/** Miniature d'une image avec un filtre (choix du filtre dans les réglages du clip). */
+export function drawFilterPreview(canvas: HTMLCanvasElement, source: CanvasImageSource, sourceWidth: number, sourceHeight: number, filter: ClipFilter | null): void {
+  const ctx = canvas.getContext('2d');
+  if (!ctx) return;
+  // Image recadrée pour remplir la miniature.
+  const scale = Math.max(canvas.width / sourceWidth, canvas.height / sourceHeight);
+  const width = sourceWidth * scale;
+  const height = sourceHeight * scale;
+  ctx.setTransform(1, 0, 0, 1, canvas.width / 2, canvas.height / 2);
+  drawMedia(ctx, source, width, height, 0, filter, 0, 0);
+  ctx.setTransform(1, 0, 0, 1, 0, 0);
 }
