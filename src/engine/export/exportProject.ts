@@ -3,7 +3,9 @@ import coreURL from '@ffmpeg/core?url';
 import wasmURL from '@ffmpeg/core/wasm?url';
 import { frameCount } from '../../core/project';
 import type { Project } from '../../core/types';
+import { usesCutout } from '../../core/transition';
 import { loadFonts } from '../fonts';
+import { loadSegmenter } from '../segmentation';
 import { mixProjectAudio } from './audioMix';
 import { FrameSource } from './FrameSource';
 import { encodeWav } from './wav';
@@ -119,7 +121,8 @@ export async function exportProject(project: Project, { onProgress, signal }: Ex
   try {
     signal.throwIfAborted();
     onProgress({ ratio: 0, stage: 'prepare' });
-    await Promise.all([loadEncoder(ffmpeg), loadFonts()]);
+    const [, , cutoutReady] = await Promise.all([loadEncoder(ffmpeg), loadFonts(), usesCutout(project) ? loadSegmenter() : true]);
+    if (!cutoutReady) throw new Error('Le détourage n’a pas pu démarrer sur cet appareil.');
 
     signal.throwIfAborted();
     onProgress({ ratio: 0.02, stage: 'audio' });

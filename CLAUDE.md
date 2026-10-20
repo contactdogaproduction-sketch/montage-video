@@ -69,9 +69,11 @@ Ajouts demandés par l'utilisateur (20/10/2026), hors cahier des charges initial
 18. **Sous-titres : qualité au choix** « Rapide » (whisper-base) ou « Précis » (whisper-small).
 19. **Filtres de couleur** par clip vidéo ou photo : N&B, Sépia, Pop, Film délavé (vignette et grain),
     intensité réglable.
-20. **Transitions à la mode** : flash blanc, balayage flou (whip pan).
+20. **Transitions à la mode** : flash blanc, balayage flou (whip pan), détourage + balayage (la personne
+    reste devant pendant que le décor défile vers le clip suivant).
+21. **Supprimer l'arrière-plan** d'une vidéo ou d'une photo (détourage des personnes, sur l'appareil).
 
-**Exclus** : effets spéciaux (hors filtres et transitions ci-dessus), comptes, cloud, modèles, IA générative.
+**Exclus** : effets spéciaux (hors filtres, transitions et détourage ci-dessus), comptes, cloud, modèles, IA générative.
 
 ## Interface
 - Thème clair : fond blanc ou gris très clair, beaucoup d'espace, **une seule couleur d'accent**
@@ -150,6 +152,13 @@ Ajouts demandés par l'utilisateur (20/10/2026), hors cahier des charges initial
 - **Flash blanc et balayage flou** : `LayerEffect.flash` (voile blanc sur tout le cadre, maximal au milieu,
   où l'on passe au clip suivant) et `LayerEffect.motionBlur` (8 copies décalées et moyennées, mouvement
   en `easeInOutCubic`).
+- **Détourage** (`MediaClip.removeBackground`, transition `cutout`, `engine/segmentation.ts`) : MediaPipe
+  `@mediapipe/tasks-vision` (Apache 2.0), modèle « selfie segmenter » float16 (250 Ko,
+  `src/assets/models/`, téléchargé depuis Google), processeur seulement, dans `segmentation.worker.ts`
+  (variante `vision_wasm_module_internal` pour un worker module). Image réduite à 256 px avant l'envoi,
+  masque adouci (seuil 0,3–0,7) puis agrandi. Aperçu : `LiveMasks` utilise le dernier masque reçu pendant
+  que le suivant se calcule (~40 ms) ; export : masque exact calculé avant chaque image (`FrameSource`).
+  Tout est pré-mis en cache (hors ligne). Couche `cutout` non dessinée tant que le masque manque.
 - **Vitesse** (`MediaClip.speed`, 0,5/1/1,5/2) : `sourceTimeAt = inPoint + (t - start) × vitesse` ;
   changer la vitesse garde le passage de la source et adapte la durée (`setClipSpeed`,
   `changeClipSpeed` qui déplace le clip si une piste libre déborde). Aperçu : `playbackRate`

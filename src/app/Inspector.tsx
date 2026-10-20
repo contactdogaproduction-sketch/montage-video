@@ -2,6 +2,7 @@ import type { ReactNode } from 'react';
 import { findClipLocation, getMainTrack } from '../core/project';
 import type { Project } from '../core/types';
 import { AudioPanel } from '../features/audio/AudioPanel';
+import { BackgroundPanel } from '../features/background/BackgroundPanel';
 import { FilterPanel } from '../features/filters/FilterPanel';
 import { OverlayPanel } from '../features/overlay/OverlayPanel';
 import { StickerPanel } from '../features/stickers/StickerPanel';
@@ -27,6 +28,7 @@ function panelFor(project: Project, clipId: string): { title: string; content: R
       if (!media) return null;
       const visual = media.kind !== 'audio' ? <OverlayPanel clip={clip} overlay={track.kind === 'overlay'} /> : null;
       const filter = media.kind !== 'audio' ? <FilterPanel clip={clip} /> : null;
+      const background = media.kind !== 'audio' ? <BackgroundPanel clip={clip} overlay={track.kind === 'overlay'} /> : null;
       const audio = media.kind !== 'image' ? <AudioPanel clip={clip} track={track} /> : null;
       const speed = media.kind !== 'image' ? <SpeedPanel clip={clip} /> : null;
       const title = media.kind === 'audio' ? 'Audio' : track.kind === 'overlay' ? 'Incrustation' : media.kind === 'image' ? 'Photo' : 'Vidéo';
@@ -36,6 +38,7 @@ function panelFor(project: Project, clipId: string): { title: string; content: R
           <>
             {speed}
             {filter}
+            {background}
             {visual}
             {audio}
           </>

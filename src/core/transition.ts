@@ -1,11 +1,11 @@
 import { easeInOut } from './keyframes';
-import type { Clip, MediaClip, Ms, Track, Transition, TransitionType } from './types';
+import type { Clip, MediaClip, Ms, Project, Track, Transition, TransitionType } from './types';
 
 export const MIN_TRANSITION: Ms = 200;
 export const MAX_TRANSITION: Ms = 2000;
 export const DEFAULT_TRANSITION: Ms = 500;
 
-export const TRANSITION_TYPES: TransitionType[] = ['fade', 'fade-black', 'slide', 'zoom', 'blur', 'flash', 'whip'];
+export const TRANSITION_TYPES: TransitionType[] = ['fade', 'fade-black', 'slide', 'zoom', 'blur', 'flash', 'whip', 'cutout'];
 
 /** Durée maximale d'une transition entre deux clips : la moitié du plus court, sans dépasser 2 s. */
 export function maxTransitionDuration(previous: Clip, next: Clip): Ms {
@@ -61,9 +61,14 @@ export interface LayerEffect {
   flash: number;
   /** Longueur du flou de mouvement horizontal, en fraction de la largeur du cadre (balayage). */
   motionBlur: number;
+  /** Seule la personne détourée est dessinée (le décor est retiré). */
+  cutout: boolean;
 }
 
-const NEUTRAL: LayerEffect = { opacity: 1, offsetX: 0, scale: 1, blur: 0, flash: 0, motionBlur: 0 };
+const NEUTRAL: LayerEffect = { opacity: 1, offsetX: 0, scale: 1, blur: 0, flash: 0, motionBlur: 0, cutout: false };
+
+/** Part de la transition « détourage » pendant laquelle le décor défile (la personne s'efface ensuite). */
+export const CUTOUT_SWEEP = 0.7;
 
 /** Accélération puis décélération marquées : mouvement très rapide au milieu (balayage). */
 export function easeInOutCubic(p: number): number {
@@ -120,6 +125,19 @@ export function transitionLayers(type: TransitionType, progress: number): Transi
         { which: 'to', effect: { ...NEUTRAL, offsetX: 1 - move, motionBlur } },
       ];
     }
+    case 'cutout': {
+      // La personne du premier clip reste devant pendant que le décor file vers la gauche et
+      // laisse place au clip suivant ; elle s'efface ensuite.
+      const sweep = Math.min(1, p / CUTOUT_SWEEP);
+      const move = easeInOutCubic(sweep);
+      const motionBlur = 0.25 * Math.sin(Math.PI * sweep);
+      const fadeOut = p <= CUTOUT_SWEEP ? 1 : 1 - (p - CUTOUT_SWEEP) / (1 - CUTOUT_SWEEP);
+      return [
+        { which: 'from', effect: { ...NEUTRAL, offsetX: -move, motionBlur } },
+        { which: 'to', effect: { ...NEUTRAL, offsetX: 1 - move, motionBlur } },
+        { which: 'from', effect: { ...NEUTRAL, cutout: true, opacity: fadeOut } },
+      ];
+    }
   }
 }
 
@@ -131,4 +149,12 @@ export const TRANSITION_LABELS: Record<TransitionType, string> = {
   blur: 'Flou',
   flash: 'Flash blanc',
   whip: 'Balayage flou',
+  cutout: 'Détourage + balayage',
 };
+
+/** Vrai si le projet a besoin du détourage (arrière-plan supprimé ou transition « détourage »). */
+export function usesCutout(project: Project): boolean {
+  return project.tracks.some((track) =>
+    track.clips.some((clip) => clip.type === 'media' && (clip.removeBackground || clip.transition?.type === 'cutout')),
+  );
+}

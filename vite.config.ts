@@ -45,7 +45,7 @@ export default defineConfig({
       },
       workbox: {
         // Tout est mis en cache à l'installation, FFmpeg compris : l'app fonctionne hors ligne.
-        globPatterns: ['**/*.{js,css,html,wasm,woff2,png}'],
+        globPatterns: ['**/*.{js,css,html,wasm,woff2,png,tflite}'],
         // Moteur de transcription (14 Mo) : mis en cache au premier usage des sous-titres, avec le modèle,
         // plutôt qu'à l'installation (qui reste légère).
         globIgnores: ['**/ort-wasm-*'],

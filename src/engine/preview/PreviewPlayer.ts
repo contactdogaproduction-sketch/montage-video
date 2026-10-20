@@ -5,7 +5,8 @@ import type { MediaInfo, Ms, Project } from '../../core/types';
 import { getMediaSource, onMediaPreview } from '../../store/mediaRegistry';
 import { loadFonts } from '../fonts';
 import { createVideoElement, primeVideo } from '../mediaElement';
-import { SpriteCache, drawFrame } from '../render';
+import { SpriteCache, drawFrame, type MaskResolver } from '../render';
+import { LiveMasks, loadSegmenter, segmenterReady } from '../segmentation';
 
 /** Écart toléré entre l'horloge et un média avant de forcer un repositionnement (s). */
 // Un repositionnement provoque un à-coup visible : on ne recale qu'au-delà d'un écart net.
@@ -52,6 +53,10 @@ export class PreviewPlayer {
   /** Instant (performance.now) avant lequel un lecteur ne doit pas être repositionné. */
   private readonly resyncAfter = new Map<HTMLMediaElement, number>();
   private readonly sprites = new SpriteCache();
+  private readonly masks = new LiveMasks(() => {
+    this.dirty = true;
+  });
+  private segmenterRequested = false;
   /** Instant de la dernière image dessinée pendant la lecture. */
   private lastFrameAt = 0;
   /** Médias dont la copie allégée a été créée ou supprimée, à basculer dès que la lecture s'arrête. */
@@ -151,6 +156,7 @@ export class PreviewPlayer {
     this.stopPreviewListener();
     document.fonts.removeEventListener('loadingdone', this.fontsChanged);
     this.sprites.clear();
+    this.masks.clear();
     for (const player of this.players.values()) release(player);
     this.players.clear();
     this.images.clear();
@@ -373,6 +379,22 @@ export class PreviewPlayer {
     this.dirty = true;
   }
 
+  /** Masque de la personne pour une couche (détourage chargé à la première demande). */
+  private readonly mask: MaskResolver = (layer, source) => {
+    if (!segmenterReady()) {
+      if (!this.segmenterRequested) {
+        this.segmenterRequested = true;
+        void loadSegmenter().then(this.markDirty);
+      }
+      return null;
+    }
+    const mediaId = clipMediaId(layer.clip);
+    if (!mediaId) return null;
+    // Un masque par lecteur, recalculé quand l'image de la vidéo change ; un seul pour une photo.
+    if (source instanceof HTMLVideoElement) return this.masks.get(playerKey(mediaId, layer.slot), String(source.currentTime), source);
+    return this.masks.get(mediaId, 'photo', source);
+  };
+
   private readySource(layer: Layer, media: MediaInfo): CanvasImageSource | null {
     if (media.kind === 'image') {
       const img = this.image(media);
@@ -400,6 +422,6 @@ export class PreviewPlayer {
       this.sprites.pixelScale = scale;
     }
     ctx.setTransform(scale, 0, 0, canvas.height / project.height, 0, 0);
-    drawFrame(ctx, project, t, (layer, media) => this.readySource(layer, media), this.sprites);
+    drawFrame(ctx, project, t, (layer, media) => this.readySource(layer, media), this.sprites, this.mask);
   }
 }

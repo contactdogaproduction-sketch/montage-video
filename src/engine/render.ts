@@ -20,6 +20,12 @@ const BLUR_STRENGTH = 23;
  */
 export type SourceResolver = (layer: Layer, media: MediaInfo) => CanvasImageSource | null;
 
+/**
+ * Fournit le masque de la personne pour l'image `source` d'une couche (détourage), ou `null`
+ * s'il n'est pas (encore) disponible.
+ */
+export type MaskResolver = (layer: Layer, source: CanvasImageSource) => CanvasImageSource | null;
+
 type Context2D = CanvasRenderingContext2D | OffscreenCanvasRenderingContext2D;
 
 let measureContext: CanvasRenderingContext2D | null = null;
@@ -144,6 +150,7 @@ function drawImageBlurred(ctx: Context2D, source: CanvasImageSource, width: numb
 }
 
 let filterCanvas: HTMLCanvasElement | null = null;
+let maskCanvas: HTMLCanvasElement | null = null;
 let grainTile: HTMLCanvasElement | null = null;
 /** Côté du motif de grain, en pixels. */
 const GRAIN_SIZE = 128;
@@ -246,14 +253,46 @@ function filteredImage(ctx: Context2D, source: CanvasImageSource, width: number,
   return filterCanvas;
 }
 
+/** Image limitée à la personne détourée (masque agrandi à la taille de l'image, bords adoucis). */
+function maskedImage(ctx: Context2D, image: CanvasImageSource, mask: CanvasImageSource, width: number, height: number, blur: number): HTMLCanvasElement {
+  maskCanvas ??= document.createElement('canvas');
+  const scale = deviceScale(ctx);
+  maskCanvas.width = Math.max(1, Math.min(4096, Math.ceil(width * scale)));
+  maskCanvas.height = Math.max(1, Math.min(4096, Math.ceil(height * scale)));
+  const m = maskCanvas.getContext('2d');
+  if (!m) return maskCanvas;
+  m.setTransform(maskCanvas.width / width, 0, 0, maskCanvas.height / height, maskCanvas.width / 2, maskCanvas.height / 2);
+  drawImageBlurred(m, image, width, height, blur);
+  m.globalCompositeOperation = 'destination-in';
+  m.imageSmoothingEnabled = true;
+  m.imageSmoothingQuality = 'high';
+  m.drawImage(mask, -width / 2, -height / 2, width, height);
+  m.globalCompositeOperation = 'source-over';
+  return maskCanvas;
+}
+
 /**
- * Image d'une vidéo ou d'une photo : filtre, flou de transition, et flou de mouvement
+ * Image d'une vidéo ou d'une photo : filtre, détourage (`mask`), flou de transition, et flou de mouvement
  * (`streak` : longueur de la traînée, dans le repère de l'élément).
  */
-function drawMedia(ctx: Context2D, source: CanvasImageSource, width: number, height: number, blur: number, filter: ClipFilter | null, streak: number, t: Ms): void {
+function drawMedia(
+  ctx: Context2D,
+  source: CanvasImageSource,
+  width: number,
+  height: number,
+  blur: number,
+  filter: ClipFilter | null,
+  streak: number,
+  t: Ms,
+  mask: CanvasImageSource | null = null,
+): void {
   const ops = filterOperations(filter);
-  const image = ops.length > 0 ? filteredImage(ctx, source, width, height, blur, ops, t) : source;
-  const remainingBlur = ops.length > 0 ? 0 : blur;
+  let image = ops.length > 0 ? filteredImage(ctx, source, width, height, blur, ops, t) : source;
+  let remainingBlur = ops.length > 0 ? 0 : blur;
+  if (mask) {
+    image = maskedImage(ctx, image, mask, width, height, remainingBlur);
+    remainingBlur = 0;
+  }
   if (streak <= 0) {
     drawImageBlurred(ctx, image, width, height, remainingBlur);
     return;
@@ -377,8 +416,10 @@ function drawSticker(ctx: Context2D, project: Project, layer: Layer, clip: Stick
  * Dessine l'image du projet au temps `t`, dans le repère du projet (width × height).
  * Partagé par l'aperçu et l'export : ce qu'on voit est ce qu'on exporte.
  * `sprites` (aperçu) : textes et emojis recopiés depuis un cache ; l'export les dessine directement.
+ * `masks` : détourage des personnes ; sans masque, un arrière-plan à supprimer reste visible et
+ * la personne d'une transition « détourage » n'est pas dessinée.
  */
-export function drawFrame(ctx: Context2D, project: Project, t: Ms, resolve: SourceResolver, sprites?: SpriteCache): void {
+export function drawFrame(ctx: Context2D, project: Project, t: Ms, resolve: SourceResolver, sprites?: SpriteCache, masks?: MaskResolver): void {
   ctx.fillStyle = '#000';
   ctx.fillRect(0, 0, project.width, project.height);
   for (const layer of visibleLayers(project, t)) {
@@ -393,7 +434,10 @@ export function drawFrame(ctx: Context2D, project: Project, t: Ms, resolve: Sour
         const { width, height } = baseSize(project, clip);
         const scale = transform.scale * (effect?.scale ?? 1);
         const streak = scale > 0 ? ((effect?.motionBlur ?? 0) * project.width) / scale : 0;
-        withTransform(ctx, project, transform, effect, () => drawMedia(ctx, source, width, height, effect?.blur ?? 0, clip.filter, streak, t));
+        const cutout = effect?.cutout ?? false;
+        const mask = (cutout || clip.removeBackground) && masks ? masks(layer, source) : null;
+        if (cutout && !mask) break;
+        withTransform(ctx, project, transform, effect, () => drawMedia(ctx, source, width, height, effect?.blur ?? 0, clip.filter, streak, t, mask));
         break;
       }
       case 'sticker': {

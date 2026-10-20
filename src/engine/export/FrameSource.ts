@@ -1,9 +1,10 @@
 import { clipMediaId, sourceTimeAt } from '../../core/clip';
-import { visibleLayers, type SourceSlot } from '../../core/composition';
+import { visibleLayers, type Layer, type SourceSlot } from '../../core/composition';
 import type { MediaInfo, Ms, Project } from '../../core/types';
 import { getMediaSource } from '../../store/mediaRegistry';
 import { createVideoElement, primeVideo, seekVideo, waitForEvent } from '../mediaElement';
-import { drawFrame } from '../render';
+import { drawFrame, type SourceResolver } from '../render';
+import { putMask, requestMask } from '../segmentation';
 
 /** Délai maximal de chargement d'un média ou d'un positionnement pendant l'export. */
 const MEDIA_TIMEOUT_MS = 20_000;
@@ -18,11 +19,14 @@ async function expect(target: EventTarget, event: string, name: string): Promise
 }
 
 const videoKey = (mediaId: string, slot: SourceSlot) => `${mediaId}#${slot}`;
+const maskKey = (layer: Layer) => `${layer.clip.id}#${layer.slot}`;
 
 /** Rendu image par image pour l'export : chaque vidéo visible est positionnée exactement avant le dessin. */
 export class FrameSource {
   private readonly videos = new Map<string, HTMLVideoElement>();
   private readonly images = new Map<string, HTMLImageElement>();
+  /** Détourage : masques de l'image en cours, par clip et lecteur. */
+  private readonly masks = new Map<string, HTMLCanvasElement>();
 
   constructor(private readonly project: Project) {}
 
@@ -42,9 +46,27 @@ export class FrameSource {
         await this.image(media);
       }
     }
-    drawFrame(ctx, this.project, t, (layer, m) =>
-      (m.kind === 'video' ? this.videos.get(videoKey(m.id, layer.slot)) : this.images.get(m.id)) ?? null,
-    );
+    const resolve: SourceResolver = (layer, m) => (m.kind === 'video' ? this.videos.get(videoKey(m.id, layer.slot)) : this.images.get(m.id)) ?? null;
+    // Détourage exact de chaque image exportée, calculé avant le dessin.
+    const masked = new Set<string>();
+    for (const layer of visibleLayers(this.project, t)) {
+      const { clip } = layer;
+      if (clip.type !== 'media' || !(clip.removeBackground || layer.effect?.cutout)) continue;
+      const key = maskKey(layer);
+      const media = this.project.media[clip.mediaId];
+      const source = media ? resolve(layer, media) : null;
+      if (masked.has(key) || !source) continue;
+      const mask = await requestMask(source);
+      if (!mask) throw new Error('Le détourage a échoué pendant l’export.');
+      let canvas = this.masks.get(key);
+      if (!canvas) {
+        canvas = document.createElement('canvas');
+        this.masks.set(key, canvas);
+      }
+      putMask(canvas, mask);
+      masked.add(key);
+    }
+    drawFrame(ctx, this.project, t, resolve, undefined, (layer) => (masked.has(maskKey(layer)) ? (this.masks.get(maskKey(layer)) ?? null) : null));
   }
 
   dispose(): void {
@@ -55,6 +77,7 @@ export class FrameSource {
     }
     this.videos.clear();
     this.images.clear();
+    this.masks.clear();
   }
 
   private async video(media: MediaInfo, slot: SourceSlot): Promise<HTMLVideoElement> {

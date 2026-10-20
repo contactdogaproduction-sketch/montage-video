@@ -40,7 +40,7 @@ export interface Keyframe {
   easing: Easing;
 }
 
-export type TransitionType = 'fade' | 'fade-black' | 'slide' | 'zoom' | 'blur' | 'flash' | 'whip';
+export type TransitionType = 'fade' | 'fade-black' | 'slide' | 'zoom' | 'blur' | 'flash' | 'whip' | 'cutout';
 
 /** Transition vers le clip suivant de la piste principale (les deux clips se chevauchent de `duration`). */
 export interface Transition {
@@ -78,6 +78,8 @@ export interface MediaClip extends ClipBase {
   fit: FitMode;
   /** Filtre de couleur de l'image (vidéo ou photo), ou `null`. */
   filter: ClipFilter | null;
+  /** Arrière-plan supprimé : seule la personne reste visible (détourage automatique). */
+  removeBackground: boolean;
 }
 
 export type FilterType = 'bw' | 'sepia' | 'pop' | 'film';
