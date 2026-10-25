@@ -18,6 +18,9 @@ interface PreviewCopyState {
 export const usePreviewCopyStore = create<PreviewCopyState>()(() => ({ remaining: 0, progress: 0 }));
 
 const queue: CopyRequest[] = [];
+/** Délai sans nouvel import avant de lancer une conversion : l'import en cours garde toute la puissance. */
+const START_DELAY_MS = 1500;
+let startTimer = 0;
 let worker: Worker | null = null;
 let running: CopyRequest | null = null;
 let unsupported = false;
@@ -78,12 +81,19 @@ function isVisualVideoCandidate(file: Blob): boolean {
   return !file.type.startsWith('image/') && !file.type.startsWith('audio/');
 }
 
+/** Lance la file après un court délai sans nouvel import (repoussé à chaque fichier ajouté). */
+function scheduleNext(): void {
+  window.clearTimeout(startTimer);
+  refresh();
+  startTimer = window.setTimeout(next, START_DELAY_MS);
+}
+
 /** Lance la création des copies pour chaque vidéo ajoutée ou rouverte. À appeler au démarrage. */
 export function startPreviewCopies(): void {
   onMediaRegistered((id, source) => {
     if (unsupported || source.preview || !isVisualVideoCandidate(source.file)) return;
     queue.push({ id, file: source.file });
-    next();
+    scheduleNext();
   });
   // Copies supprimées (après l'export) : les conversions en attente ou en cours sont abandonnées.
   onMediaPreview((id, preview) => {

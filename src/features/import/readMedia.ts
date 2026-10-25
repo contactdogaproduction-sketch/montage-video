@@ -1,3 +1,4 @@
+import { ALL_FORMATS, BlobSource, CanvasSink, Input } from 'mediabunny';
 import type { MediaInfo, MediaKind } from '../../core/types';
 import { createVideoElement, primeVideo, seekVideo, waitForEvent } from '../../engine/mediaElement';
 
@@ -26,7 +27,38 @@ function makeThumbnail(source: CanvasImageSource, width: number, height: number)
   return canvas.toDataURL('image/jpeg', 0.7);
 }
 
+/** Instant de la miniature d'une vidéo (s). */
+const THUMBNAIL_TIME_S = 0.1;
+
+/**
+ * Lecture rapide d'une vidéo : informations lues directement dans le fichier, miniature décodée
+ * par WebCodecs. Évite le lecteur vidéo, qu'il faut lancer puis arrêter sur iPhone (lent).
+ * Renvoie `null` si cette lecture n'est pas possible (l'import passe alors par le lecteur).
+ */
+async function readVideoFast(file: File, id: string, url: string): Promise<ReadMediaResult | null> {
+  if (typeof VideoDecoder === 'undefined') return null;
+  const input = new Input({ source: new BlobSource(file), formats: ALL_FORMATS });
+  try {
+    const track = await input.getPrimaryVideoTrack();
+    if (!track || !(await track.canDecode())) return null;
+    const duration = await input.computeDuration();
+    const width = track.displayWidth;
+    const height = track.displayHeight;
+    if (!Number.isFinite(duration) || duration <= 0 || width <= 0 || height <= 0) return null;
+    const sink = new CanvasSink(track, { height: THUMBNAIL_HEIGHT });
+    const frame = await sink.getCanvas(Math.min(THUMBNAIL_TIME_S, duration / 2));
+    const thumbnail = frame ? makeThumbnail(frame.canvas, width, height) : null;
+    return { info: { id, kind: 'video', name: file.name, duration: Math.round(duration * 1000), width, height }, url, thumbnail };
+  } catch {
+    return null;
+  } finally {
+    input.dispose();
+  }
+}
+
 async function readVideo(file: File, id: string, url: string): Promise<ReadMediaResult> {
+  const fast = await readVideoFast(file, id, url);
+  if (fast) return fast;
   const video = createVideoElement(url, true);
   const metadata = waitFor(video, 'loadedmetadata');
   if (video.readyState < 1) await metadata;

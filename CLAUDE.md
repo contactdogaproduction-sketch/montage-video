@@ -138,6 +138,10 @@ Ajouts demandés par l'utilisateur (20/10/2026), hors cahier des charges initial
 - **Fichiers de FFmpeg.wasm** (core + wasm) servis localement depuis le projet, pas depuis un
   CDN (compatibilité COEP et fonctionnement hors ligne de la PWA).
 - **Médias** : en mémoire (object URLs, `store/mediaRegistry.ts`) et enregistrés sur l'appareil à l'import.
+- **Import** (`features/import/`) : vidéo lue directement dans le fichier par `mediabunny` (durée, dimensions
+  affichées, miniature décodée par WebCodecs), lecteur vidéo en secours (sur iPhone il faut le lancer puis
+  l'arrêter : lent) ; jusqu'à 3 fichiers lus en même temps, ordre de sélection conservé. La copie allégée
+  démarre 1,5 s après le dernier fichier importé, pour laisser toute la puissance à l'import.
 - **Sauvegarde** (`store/persistence.ts`, IndexedDB « montage-video » : `projects`, `media` indexé par
   projet) pilotée par `features/projects/session.ts` : projet enregistré 800 ms après chaque
   modification et quand l'app passe en arrière-plan ; le dernier projet se rouvre au lancement ;

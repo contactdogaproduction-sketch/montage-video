@@ -12,20 +12,31 @@ import { readMedia } from './readMedia';
 /** Échelle d'une incrustation à son ajout (moitié de la taille du cadre). */
 const OVERLAY_SCALE = 0.5;
 
-/** Lit et enregistre les fichiers ; signale ceux que le navigateur ne sait pas lire. */
+/** Fichiers lus en même temps (la lecture attend surtout le stockage de l'appareil). */
+const PARALLEL_READS = 3;
+
+/** Lit et enregistre les fichiers (plusieurs à la fois, dans l'ordre choisi) ; signale ceux que le navigateur ne sait pas lire. */
 export async function loadMediaFiles(files: File[]): Promise<MediaInfo[]> {
-  const loaded: MediaInfo[] = [];
+  const results: (MediaInfo | null)[] = files.map(() => null);
   const rejected: string[] = [];
-  for (const file of files) {
-    const id = createId();
-    try {
-      const { info, url, thumbnail } = await readMedia(file, id);
-      registerMedia(id, { file, url, thumbnail });
-      loaded.push(info);
-    } catch {
-      rejected.push(file.name);
+  let nextIndex = 0;
+  const worker = async () => {
+    while (nextIndex < files.length) {
+      const index = nextIndex++;
+      const file = files[index];
+      if (!file) continue;
+      const id = createId();
+      try {
+        const { info, url, thumbnail } = await readMedia(file, id);
+        registerMedia(id, { file, url, thumbnail });
+        results[index] = info;
+      } catch {
+        rejected.push(file.name);
+      }
     }
-  }
+  };
+  await Promise.all(Array.from({ length: Math.min(PARALLEL_READS, files.length) }, worker));
+  const loaded = results.filter((info): info is MediaInfo => info !== null);
   if (rejected.length > 0) {
     notify(`Impossible de lire : ${rejected.join(', ')}. Formats acceptés : vidéos, photos et fichiers audio lisibles par ce navigateur.`);
   }
