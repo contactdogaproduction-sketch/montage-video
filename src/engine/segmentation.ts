@@ -64,10 +64,16 @@ export function segmenterReady(): boolean {
 const INPUT_SIZE = 256;
 let input: HTMLCanvasElement | null = null;
 
-type Segmentable = HTMLVideoElement | HTMLImageElement | HTMLCanvasElement;
+/** Sources détourables : lecteur vidéo, photo, image décodée (canvas, y compris hors page à l'export). */
+type Segmentable = HTMLVideoElement | HTMLImageElement | HTMLCanvasElement | OffscreenCanvas;
 
 function isSegmentable(source: CanvasImageSource): source is Segmentable {
-  return source instanceof HTMLVideoElement || source instanceof HTMLImageElement || source instanceof HTMLCanvasElement;
+  return (
+    source instanceof HTMLVideoElement ||
+    source instanceof HTMLImageElement ||
+    source instanceof HTMLCanvasElement ||
+    (typeof OffscreenCanvas !== 'undefined' && source instanceof OffscreenCanvas)
+  );
 }
 
 /** Pixels de l'image réduite à la taille du modèle. */

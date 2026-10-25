@@ -1,4 +1,5 @@
 import { FFmpeg } from '@ffmpeg/ffmpeg';
+import { AudioBufferSource, BufferTarget, CanvasSource, Mp4OutputFormat, Output, canEncodeAudio, canEncodeVideo } from 'mediabunny';
 import coreURL from '@ffmpeg/core?url';
 import wasmURL from '@ffmpeg/core/wasm?url';
 import { frameCount } from '../../core/project';
@@ -23,6 +24,12 @@ export interface ExportOptions {
   signal: AbortSignal;
 }
 
+export interface ExportResult {
+  blob: Blob;
+  /** Médias dont le son n'a pas pu être lu (la vidéo exportée est muette pour eux). */
+  silentMedia: string[];
+}
+
 export class ExportCancelledError extends Error {
   constructor() {
     super('Export annulé.');
@@ -32,6 +39,12 @@ export class ExportCancelledError extends Error {
 /** Images par segment : borne la mémoire utilisée (fichiers JPEG en mémoire de FFmpeg). */
 const SEGMENT_FRAMES = 90;
 const JPEG_QUALITY = 0.92;
+
+/** Débit de la vidéo encodée par l'appareil (1080p, 30 images/s). */
+const VIDEO_BITRATE = 12_000_000;
+const AUDIO_BITRATE = 192_000;
+/** Une image complète toutes les 2 s. */
+const KEYFRAME_INTERVAL_S = 2;
 
 /** Au-delà, le chargement de l'encodeur est considéré comme bloqué (worker non chargé). */
 const LOAD_TIMEOUT_MS = 90_000;
@@ -104,110 +117,211 @@ async function encodeSegment(ffmpeg: FFmpeg, segment: number, count: number, fps
   return output;
 }
 
-/**
- * Exporte le projet en MP4 H.264 + AAC.
- * Les images sont rendues par le même moteur que l'aperçu, encodées par segments
- * (l'encodage d'un segment se fait pendant le rendu du suivant), puis concaténées.
- */
-export async function exportProject(project: Project, { onProgress, signal }: ExportOptions): Promise<Blob> {
-  const total = frameCount(project);
-  if (total === 0) throw new Error('Le projet est vide.');
+type Report = (progress: ExportProgress) => void;
 
-  const ffmpeg = new FFmpeg();
-  const stop = () => ffmpeg.terminate();
+/**
+ * Encodage par l'appareil (WebCodecs : encodeur matériel du téléphone ou de l'ordinateur) : chaque
+ * image rendue est encodée directement, sans passer par des fichiers JPEG. Le son est encodé en
+ * AAC par l'appareil s'il le sait, sinon ajouté ensuite par FFmpeg.
+ */
+async function encodeWithDevice(
+  project: Project,
+  frames: FrameSource,
+  audio: AudioBuffer,
+  signal: AbortSignal,
+  onProgress: Report,
+  getFfmpeg: () => Promise<FFmpeg>,
+): Promise<Blob> {
+  const total = frameCount(project);
+  const canvas = document.createElement('canvas');
+  canvas.width = project.width;
+  canvas.height = project.height;
+  const ctx = canvas.getContext('2d');
+  if (!ctx) throw new Error('Canvas 2D indisponible.');
+
+  const withAudio = await canEncodeAudio('aac', { numberOfChannels: 2, sampleRate: audio.sampleRate, bitrate: AUDIO_BITRATE });
+  const output = new Output({ format: new Mp4OutputFormat({ fastStart: 'in-memory' }), target: new BufferTarget() });
+  const video = new CanvasSource(canvas, { codec: 'avc', bitrate: VIDEO_BITRATE, keyFrameInterval: KEYFRAME_INTERVAL_S });
+  output.addVideoTrack(video, { frameRate: project.fps });
+  const sound = withAudio ? new AudioBufferSource({ codec: 'aac', bitrate: AUDIO_BITRATE }) : null;
+  if (sound) output.addAudioTrack(sound);
+  const cancel = () => void output.cancel();
+  signal.addEventListener('abort', cancel, { once: true });
+  try {
+    await output.start();
+    if (sound) {
+      await sound.add(audio);
+      sound.close();
+    }
+    for (let i = 0; i < total; i++) {
+      signal.throwIfAborted();
+      await frames.draw(ctx, (i * 1000) / project.fps);
+      await video.add(i / project.fps, 1 / project.fps);
+      onProgress({ ratio: 0.05 + 0.9 * ((i + 1) / total), stage: 'video' });
+    }
+    video.close();
+    onProgress({ ratio: 0.96, stage: 'finalize' });
+    await output.finalize();
+  } finally {
+    signal.removeEventListener('abort', cancel);
+  }
+  const data = output.target.buffer;
+  if (!data) throw new Error('Fichier exporté illisible.');
+  if (withAudio) return new Blob([data], { type: 'video/mp4' });
+
+  // Son ajouté par FFmpeg (AAC), la vidéo est recopiée telle quelle.
+  const ffmpeg = await getFfmpeg();
+  await ffmpeg.writeFile('video.mp4', new Uint8Array(data));
+  await ffmpeg.writeFile('audio.wav', encodeWav(audio));
+  await run(ffmpeg, ['-i', 'video.mp4', '-i', 'audio.wav', '-map', '0:v', '-map', '1:a', '-c:v', 'copy', '-c:a', 'aac', '-b:a', '192k', '-shortest', '-movflags', '+faststart', 'out.mp4']);
+  const muxed = await ffmpeg.readFile('out.mp4');
+  if (typeof muxed === 'string') throw new Error('Fichier exporté illisible.');
+  return new Blob([muxed.slice()], { type: 'video/mp4' });
+}
+
+/**
+ * Encodage par FFmpeg (navigateurs sans encodeur vidéo WebCodecs) : images rendues en JPEG,
+ * encodées par segments (l'encodage d'un segment se fait pendant le rendu du suivant), puis
+ * concaténées avec le son.
+ */
+async function encodeWithFfmpeg(project: Project, frames: FrameSource, audio: AudioBuffer, signal: AbortSignal, onProgress: Report, ffmpeg: FFmpeg): Promise<Blob> {
+  const total = frameCount(project);
+  await ffmpeg.writeFile('audio.wav', encodeWav(audio));
+  const canvas = document.createElement('canvas');
+  canvas.width = project.width;
+  canvas.height = project.height;
+  const ctx = canvas.getContext('2d');
+  if (!ctx) throw new Error('Canvas 2D indisponible.');
+
+  let rendered = 0;
+  let encoded = 0;
+  /** Images du segment en cours d'encodage, et part déjà encodée (progression rapportée par FFmpeg). */
+  let encodingCount = 0;
+  let encodingRatio = 0;
+  const report = () =>
+    onProgress({
+      ratio: 0.05 + 0.9 * ((rendered + encoded + encodingRatio * encodingCount) / (2 * total)),
+      stage: 'video',
+    });
+  ffmpeg.on('progress', ({ progress }) => {
+    if (encodingCount === 0) return;
+    encodingRatio = Math.min(1, Math.max(0, progress));
+    report();
+  });
+  report();
+
+  const segments: string[] = [];
+  let encoding: Promise<void> = Promise.resolve();
+  for (let segment = 0; segment * SEGMENT_FRAMES < total; segment++) {
+    const first = segment * SEGMENT_FRAMES;
+    const count = Math.min(SEGMENT_FRAMES, total - first);
+    const jpegs: Uint8Array[] = [];
+    for (let i = 0; i < count; i++) {
+      signal.throwIfAborted();
+      await frames.draw(ctx, ((first + i) * 1000) / project.fps);
+      jpegs.push(canvasToJpeg(canvas));
+      rendered++;
+      report();
+    }
+    await encoding;
+    for (const [i, jpeg] of jpegs.entries()) await ffmpeg.writeFile(frameName(segment, i), jpeg);
+    encodingCount = count;
+    encodingRatio = 0;
+    encoding = encodeSegment(ffmpeg, segment, count, project.fps).then((name) => {
+      segments.push(name);
+      encoded += count;
+      encodingCount = 0;
+      encodingRatio = 0;
+      report();
+    });
+    // Évite un avertissement de promesse rejetée non gérée : l'erreur est relancée par le `await` suivant.
+    encoding.catch(() => undefined);
+  }
+  await encoding;
+
+  signal.throwIfAborted();
+  onProgress({ ratio: 0.96, stage: 'finalize' });
+  await ffmpeg.writeFile('list.txt', segments.map((name) => `file '${name}'`).join('\n'));
+  await run(ffmpeg, [
+    '-f', 'concat',
+    '-safe', '0',
+    '-i', 'list.txt',
+    '-i', 'audio.wav',
+    '-map', '0:v',
+    '-map', '1:a',
+    '-c:v', 'copy',
+    '-c:a', 'aac',
+    '-b:a', '192k',
+    '-shortest',
+    '-movflags', '+faststart',
+    'out.mp4',
+  ]);
+  const data = await ffmpeg.readFile('out.mp4');
+  if (typeof data === 'string') throw new Error('Fichier exporté illisible.');
+  return new Blob([data.slice()], { type: 'video/mp4' });
+}
+
+/** Vrai si l'appareil sait encoder la vidéo en H.264 à la taille du projet (WebCodecs). */
+async function deviceCanEncode(project: Project): Promise<boolean> {
+  if (typeof VideoEncoder === 'undefined') return false;
+  try {
+    return await canEncodeVideo('avc', { width: project.width, height: project.height, bitrate: VIDEO_BITRATE });
+  } catch {
+    return false;
+  }
+}
+
+/**
+ * Exporte le projet en MP4 H.264 + AAC. Les images sont rendues par le même moteur que l'aperçu,
+ * puis encodées par l'appareil (rapide) ou, à défaut, par FFmpeg.
+ */
+export async function exportProject(project: Project, { onProgress, signal }: ExportOptions): Promise<ExportResult> {
+  if (frameCount(project) === 0) throw new Error('Le projet est vide.');
+
+  // FFmpeg n'est chargé que s'il sert : sans encodeur de l'appareil, son à accélérer, ou son à ajouter.
+  let ffmpeg: FFmpeg | null = null;
+  let loading: Promise<FFmpeg> | null = null;
+  const getFfmpeg = () => {
+    loading ??= (async () => {
+      const instance = new FFmpeg();
+      ffmpeg = instance;
+      await loadEncoder(instance);
+      return instance;
+    })();
+    return loading;
+  };
+  const stop = () => ffmpeg?.terminate();
   signal.addEventListener('abort', stop, { once: true });
   const frames = new FrameSource(project);
 
   try {
     signal.throwIfAborted();
     onProgress({ ratio: 0, stage: 'prepare' });
-    const [, , cutoutReady] = await Promise.all([loadEncoder(ffmpeg), loadFonts(), usesCutout(project) ? loadSegmenter() : true]);
+    const [cutoutReady, device] = await Promise.all([usesCutout(project) ? loadSegmenter() : true, deviceCanEncode(project), loadFonts()]);
     if (!cutoutReady) throw new Error('Le détourage n’a pas pu démarrer sur cet appareil.');
 
     signal.throwIfAborted();
     onProgress({ ratio: 0.02, stage: 'audio' });
-    const audio = await mixProjectAudio(project, signal, (segment, speed) => stretchAudio(ffmpeg, segment, speed));
-    await ffmpeg.writeFile('audio.wav', encodeWav(audio));
-
-    const canvas = document.createElement('canvas');
-    canvas.width = project.width;
-    canvas.height = project.height;
-    const ctx = canvas.getContext('2d');
-    if (!ctx) throw new Error('Canvas 2D indisponible.');
-
-    let rendered = 0;
-    let encoded = 0;
-    /** Images du segment en cours d'encodage, et part déjà encodée (progression rapportée par FFmpeg). */
-    let encodingCount = 0;
-    let encodingRatio = 0;
-    const report = () =>
-      onProgress({
-        ratio: 0.05 + 0.9 * ((rendered + encoded + encodingRatio * encodingCount) / (2 * total)),
-        stage: 'video',
-      });
-    ffmpeg.on('progress', ({ progress }) => {
-      if (encodingCount === 0) return;
-      encodingRatio = Math.min(1, Math.max(0, progress));
-      report();
-    });
-    report();
-
-    const segments: string[] = [];
-    let encoding: Promise<void> = Promise.resolve();
-    for (let segment = 0; segment * SEGMENT_FRAMES < total; segment++) {
-      const first = segment * SEGMENT_FRAMES;
-      const count = Math.min(SEGMENT_FRAMES, total - first);
-      const jpegs: Uint8Array[] = [];
-      for (let i = 0; i < count; i++) {
-        signal.throwIfAborted();
-        await frames.draw(ctx, ((first + i) * 1000) / project.fps);
-        jpegs.push(canvasToJpeg(canvas));
-        rendered++;
-        report();
-      }
-      await encoding;
-      for (const [i, jpeg] of jpegs.entries()) await ffmpeg.writeFile(frameName(segment, i), jpeg);
-      encodingCount = count;
-      encodingRatio = 0;
-      encoding = encodeSegment(ffmpeg, segment, count, project.fps).then((name) => {
-        segments.push(name);
-        encoded += count;
-        encodingCount = 0;
-        encodingRatio = 0;
-        report();
-      });
-      // Évite un avertissement de promesse rejetée non gérée : l'erreur est relancée par le `await` suivant.
-      encoding.catch(() => undefined);
-    }
-    await encoding;
+    const silentMedia: string[] = [];
+    const audio = await mixProjectAudio(
+      project,
+      signal,
+      async (segment, speed) => stretchAudio(await getFfmpeg(), segment, speed),
+      (name) => silentMedia.push(name),
+    );
 
     signal.throwIfAborted();
-    onProgress({ ratio: 0.96, stage: 'finalize' });
-    await ffmpeg.writeFile('list.txt', segments.map((s) => `file '${s}'`).join('\n'));
-    await run(ffmpeg, [
-      '-f', 'concat',
-      '-safe', '0',
-      '-i', 'list.txt',
-      '-i', 'audio.wav',
-      '-map', '0:v',
-      '-map', '1:a',
-      '-c:v', 'copy',
-      '-c:a', 'aac',
-      '-b:a', '192k',
-      '-shortest',
-      '-movflags', '+faststart',
-      'out.mp4',
-    ]);
-    const data = await ffmpeg.readFile('out.mp4');
-    if (typeof data === 'string') throw new Error('Fichier exporté illisible.');
+    const blob = device
+      ? await encodeWithDevice(project, frames, audio, signal, onProgress, getFfmpeg)
+      : await encodeWithFfmpeg(project, frames, audio, signal, onProgress, await getFfmpeg());
     onProgress({ ratio: 1, stage: 'finalize' });
-    return new Blob([data.slice()], { type: 'video/mp4' });
+    return { blob, silentMedia };
   } catch (error) {
     if (signal.aborted) throw new ExportCancelledError();
     throw error;
   } finally {
     signal.removeEventListener('abort', stop);
     frames.dispose();
-    if (!signal.aborted) ffmpeg.terminate();
+    if (!signal.aborted) (ffmpeg as FFmpeg | null)?.terminate();
   }
 }

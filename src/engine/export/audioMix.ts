@@ -3,6 +3,7 @@ import { clipEnd } from '../../core/clip';
 import { projectDuration } from '../../core/project';
 import type { Project } from '../../core/types';
 import { getMediaSource } from '../../store/mediaRegistry';
+import { extractAudio } from './extractAudio';
 
 export const EXPORT_SAMPLE_RATE = 48000;
 
@@ -23,9 +24,15 @@ function sliceBuffer(ctx: BaseAudioContext, buffer: AudioBuffer, from: number, l
 
 /**
  * Mixe le son de toutes les pistes (vidéos et fichiers audio) avec volumes, fondus et vitesses.
- * Silence si aucun clip n'a de son.
+ * Silence si aucun clip n'a de son. `onUnreadable` : nom de chaque média dont le son existe mais n'a
+ * pas pu être lu (signalé à l'utilisateur plutôt qu'un export muet sans explication).
  */
-export async function mixProjectAudio(project: Project, signal: AbortSignal, stretch?: TimeStretcher): Promise<AudioBuffer> {
+export async function mixProjectAudio(
+  project: Project,
+  signal: AbortSignal,
+  stretch?: TimeStretcher,
+  onUnreadable?: (name: string) => void,
+): Promise<AudioBuffer> {
   const seconds = projectDuration(project) / 1000;
   const length = Math.max(1, Math.ceil(seconds * EXPORT_SAMPLE_RATE));
   const ctx = new OfflineAudioContext(2, length, EXPORT_SAMPLE_RATE);
@@ -40,12 +47,13 @@ export async function mixProjectAudio(project: Project, signal: AbortSignal, str
       if (!decoded.has(media.id)) {
         const source = getMediaSource(media.id);
         let buffer: AudioBuffer | null = null;
-        if (source) {
+        const data = source ? await extractAudio(source.file) : null;
+        if (data) {
           try {
-            buffer = await ctx.decodeAudioData(await source.file.arrayBuffer());
+            buffer = await ctx.decodeAudioData(data);
           } catch {
-            // Vidéo sans piste audio : le clip reste muet.
             buffer = null;
+            onUnreadable?.(media.name);
           }
         }
         decoded.set(media.id, buffer);

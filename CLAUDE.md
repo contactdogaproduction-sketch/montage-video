@@ -121,9 +121,15 @@ Ajouts demandés par l'utilisateur (20/10/2026), hors cahier des charges initial
 - **Undo/redo** : historique maison dans `store/` (pile passé/futur de snapshots immuables du
   `Project`), sans dépendance supplémentaire. Les actions continues (glisser, trim à la souris)
   sont regroupées en une seule entrée d'historique.
-- **Export** : rendu image par image avec le même moteur canvas que l'aperçu, encodage
-  H.264 par FFmpeg.wasm **par segments courts** (mémoire bornée sur téléphone), puis
-  concaténation et multiplexage avec la piste audio mixée via `OfflineAudioContext`.
+- **Export** : rendu image par image avec le même moteur canvas que l'aperçu. Encodage par
+  l'appareil (WebCodecs via `mediabunny` : `CanvasSource` H.264 12 Mb/s, son AAC 192 kb/s par
+  `AudioBufferSource` si l'appareil sait l'encoder, sinon ajouté par FFmpeg) ; à défaut d'encodeur
+  vidéo, FFmpeg.wasm **par segments courts** (images JPEG, mémoire bornée). Images des vidéos
+  décodées dans l'ordre par `CanvasSink.canvasesAtTimestamps` (une file par clip, réduites à la
+  taille de l'export) au lieu de repositionner un lecteur à chaque image ; lecteur repositionné
+  seulement si le navigateur ne sait pas décoder la vidéo. Son d'une vidéo : seule la piste son est
+  recopiée dans un petit M4A avant décodage (`extractAudio`) — décoder le fichier entier échouait
+  sur iPhone (export muet) ; un son illisible est signalé à la fin de l'export.
 - **Fichiers de FFmpeg.wasm** (core + wasm) servis localement depuis le projet, pas depuis un
   CDN (compatibilité COEP et fonctionnement hors ligne de la PWA).
 - **Médias** : en mémoire (object URLs, `store/mediaRegistry.ts`) et enregistrés sur l'appareil à l'import.
@@ -246,8 +252,9 @@ Ajouts demandés par l'utilisateur (20/10/2026), hors cahier des charges initial
 - **Interface** : la barre d'outils met les outils du clip sélectionné en tête ; les réglages
   s'ouvrent à la demande en feuille sur téléphone (« Réglages ») et à droite sur grand écran.
   Les curseurs et champs regroupent leurs modifications en une étape d'annulation (`ui/controls.tsx`).
-- **Export** : FFmpeg.wasm *mono-thread* (`@ffmpeg/core`), x264 `superfast` CRF 20, segments de
-  90 images, AAC 192 kb/s. Images encodées en JPEG via `toDataURL` (synchrone) : `toBlob` /
+- **Export FFmpeg (secours)** : FFmpeg.wasm *mono-thread* (`@ffmpeg/core`), chargé seulement s'il sert
+  (pas d'encodeur de l'appareil, son à accélérer avec `atempo`, ou son AAC à ajouter), x264 `superfast`
+  CRF 20, segments de 90 images, AAC 192 kb/s. Images encodées en JPEG via `toDataURL` (synchrone) : `toBlob` /
   `convertToBlob` sont différés jusqu'à 1–3 s par image dans certains navigateurs.
 - **PWA** : `vite-plugin-pwa` (Workbox, `generateSW`), mise à jour proposée à l'utilisateur
   (`app/UpdatePrompt.tsx`), tout est pré-mis en cache (FFmpeg compris) pour fonctionner hors ligne.

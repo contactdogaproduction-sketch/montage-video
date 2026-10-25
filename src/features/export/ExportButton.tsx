@@ -14,7 +14,7 @@ type ExportState =
   | { status: 'ready' }
   | { status: 'running'; ratio: number; stage: ExportStage }
   /** `freed` : place libérée par la suppression des copies allégées de l'aperçu (octets). */
-  | { status: 'done'; url: string; size: number; freed: number }
+  | { status: 'done'; url: string; size: number; freed: number; silentMedia: string[] }
   | { status: 'error'; message: string };
 
 const STAGE_LABELS: Record<ExportStage, string> = {
@@ -44,13 +44,13 @@ export function ExportButton() {
     controller.current = abort;
     setState({ status: 'running', ratio: 0, stage: 'prepare' });
     try {
-      const blob = await exportProject(getProject(), {
+      const { blob, silentMedia } = await exportProject(getProject(), {
         signal: abort.signal,
         onProgress: ({ ratio, stage }) => setState({ status: 'running', ratio, stage }),
       });
       // Montage exporté : les copies allégées de l'aperçu ne servent plus, la place est libérée.
       const freed = removeMediaPreviews();
-      setState({ status: 'done', url: URL.createObjectURL(blob), size: blob.size, freed });
+      setState({ status: 'done', url: URL.createObjectURL(blob), size: blob.size, freed, silentMedia });
     } catch (error) {
       if (error instanceof ExportCancelledError) setState({ status: 'ready' });
       else setState({ status: 'error', message: error instanceof Error ? error.message : String(error) });
@@ -115,6 +115,12 @@ export function ExportButton() {
               <p className="text-sm text-neutral-600">
                 Votre vidéo est prête ({(state.size / 1024 / 1024).toFixed(1)} Mo).
               </p>
+              {state.silentMedia.length > 0 && (
+                <p className="text-sm text-amber-700">
+                  Attention : le son de {state.silentMedia.map((name) => `« ${name} »`).join(', ')} n’a pas pu être lu sur cet appareil. Ces passages sont muets
+                  dans la vidéo.
+                </p>
+              )}
               {state.freed > 0 && (
                 <p className="text-xs text-neutral-500">
                   Copies allégées de l’aperçu supprimées ({(state.freed / 1024 / 1024).toFixed(1)} Mo libérés). Elles seront recréées si vous
