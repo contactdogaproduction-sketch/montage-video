@@ -129,7 +129,10 @@ Ajouts demandés par l'utilisateur (20/10/2026), hors cahier des charges initial
   taille de l'export) au lieu de repositionner un lecteur à chaque image ; lecteur repositionné
   seulement si le navigateur ne sait pas décoder la vidéo. Son d'une vidéo : seule la piste son est
   recopiée dans un petit M4A avant décodage (`extractAudio`) — décoder le fichier entier échouait
-  sur iPhone (export muet) ; un son illisible est signalé à la fin de l'export.
+  sur iPhone (export muet) ; un son illisible est signalé à la fin de l'export. Replis automatiques,
+  du plus rapide au plus sûr : appareil (vidéo + son AAC), appareil (vidéo) + son par FFmpeg, tout FFmpeg ;
+  une vidéo qui ne se décode pas image par image passe au lecteur repositionné. Si tout échoue, le
+  message d'erreur donne la raison de chaque méthode.
 - **Fichiers de FFmpeg.wasm** (core + wasm) servis localement depuis le projet, pas depuis un
   CDN (compatibilité COEP et fonctionnement hors ligne de la PWA).
 - **Médias** : en mémoire (object URLs, `store/mediaRegistry.ts`) et enregistrés sur l'appareil à l'import.

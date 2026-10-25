@@ -131,6 +131,8 @@ async function encodeWithDevice(
   signal: AbortSignal,
   onProgress: Report,
   getFfmpeg: () => Promise<FFmpeg>,
+  /** Son encodé par l'appareil (sinon ajouté par FFmpeg). */
+  soundOnDevice: boolean,
 ): Promise<Blob> {
   const total = frameCount(project);
   const canvas = document.createElement('canvas');
@@ -139,7 +141,7 @@ async function encodeWithDevice(
   const ctx = canvas.getContext('2d');
   if (!ctx) throw new Error('Canvas 2D indisponible.');
 
-  const withAudio = await canEncodeAudio('aac', { numberOfChannels: 2, sampleRate: audio.sampleRate, bitrate: AUDIO_BITRATE });
+  const withAudio = soundOnDevice && (await canEncodeAudio('aac', { numberOfChannels: 2, sampleRate: audio.sampleRate, bitrate: AUDIO_BITRATE }));
   const output = new Output({ format: new Mp4OutputFormat({ fastStart: 'in-memory' }), target: new BufferTarget() });
   const video = new CanvasSource(canvas, { codec: 'avc', bitrate: VIDEO_BITRATE, keyFrameInterval: KEYFRAME_INTERVAL_S });
   output.addVideoTrack(video, { frameRate: project.fps });
@@ -261,6 +263,12 @@ async function encodeWithFfmpeg(project: Project, frames: FrameSource, audio: Au
   return new Blob([data.slice()], { type: 'video/mp4' });
 }
 
+/** Raison d'un échec, lisible (nom technique compris quand le message est vide). */
+function errorText(error: unknown): string {
+  if (error instanceof Error) return error.message ? `${error.message}${error.name && error.name !== 'Error' ? ` (${error.name})` : ''}` : error.name;
+  return String(error);
+}
+
 /** Vrai si l'appareil sait encoder la vidéo en H.264 à la taille du projet (WebCodecs). */
 async function deviceCanEncode(project: Project): Promise<boolean> {
   if (typeof VideoEncoder === 'undefined') return false;
@@ -292,7 +300,6 @@ export async function exportProject(project: Project, { onProgress, signal }: Ex
   };
   const stop = () => ffmpeg?.terminate();
   signal.addEventListener('abort', stop, { once: true });
-  const frames = new FrameSource(project);
 
   try {
     signal.throwIfAborted();
@@ -310,18 +317,36 @@ export async function exportProject(project: Project, { onProgress, signal }: Ex
       (name) => silentMedia.push(name),
     );
 
-    signal.throwIfAborted();
-    const blob = device
-      ? await encodeWithDevice(project, frames, audio, signal, onProgress, getFfmpeg)
-      : await encodeWithFfmpeg(project, frames, audio, signal, onProgress, await getFfmpeg());
-    onProgress({ ratio: 1, stage: 'finalize' });
-    return { blob, silentMedia };
+    // Du plus rapide au plus sûr : si une méthode échoue sur cet appareil, la suivante prend le relais.
+    type Attempt = (frames: FrameSource) => Promise<Blob>;
+    const attempts: Attempt[] = [];
+    if (device) {
+      attempts.push((frames) => encodeWithDevice(project, frames, audio, signal, onProgress, getFfmpeg, true));
+      attempts.push((frames) => encodeWithDevice(project, frames, audio, signal, onProgress, getFfmpeg, false));
+    }
+    attempts.push(async (frames) => encodeWithFfmpeg(project, frames, audio, signal, onProgress, await getFfmpeg()));
+    const failures: string[] = [];
+    for (const attempt of attempts) {
+      signal.throwIfAborted();
+      const frames = new FrameSource(project);
+      try {
+        const blob = await attempt(frames);
+        onProgress({ ratio: 1, stage: 'finalize' });
+        return { blob, silentMedia };
+      } catch (error) {
+        if (signal.aborted) throw error;
+        failures.push(errorText(error));
+      } finally {
+        frames.dispose();
+      }
+    }
+    // Toutes les méthodes ont échoué : chaque raison est donnée (utile pour comprendre le problème).
+    throw new Error(failures.join(' / '));
   } catch (error) {
     if (signal.aborted) throw new ExportCancelledError();
     throw error;
   } finally {
     signal.removeEventListener('abort', stop);
-    frames.dispose();
     if (!signal.aborted) (ffmpeg as FFmpeg | null)?.terminate();
   }
 }

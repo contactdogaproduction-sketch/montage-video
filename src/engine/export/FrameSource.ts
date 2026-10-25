@@ -67,8 +67,9 @@ export class FrameSource {
       if (!media || sources.has(key)) continue;
       if (media.kind === 'video' && clip.type === 'media') {
         const decoded = await this.decodedVideo(media);
-        if (decoded) {
-          sources.set(key, await this.decodedFrame(clip, slot, decoded, frame));
+        const image = decoded ? await this.decodedFrame(clip, slot, decoded, frame, media) : undefined;
+        if (image !== undefined) {
+          sources.set(key, image);
         } else {
           const video = await this.video(media, slot);
           try {
@@ -158,8 +159,26 @@ export class FrameSource {
     }
   }
 
-  /** Image du clip pour l'image exportée n° `frame` (les images du clip sont décodées dans l'ordre). */
-  private async decodedFrame(clip: MediaClip, slot: SourceSlot, decoded: DecodedVideo, frame: number): Promise<CanvasImageSource | null> {
+  /**
+   * Image du clip pour l'image exportée n° `frame` (les images du clip sont décodées dans l'ordre).
+   * `undefined` si le décodage échoue : la vidéo passe alors au lecteur repositionné à chaque image.
+   */
+  private async decodedFrame(clip: MediaClip, slot: SourceSlot, decoded: DecodedVideo, frame: number, media: MediaInfo): Promise<CanvasImageSource | null | undefined> {
+    try {
+      return await this.nextDecodedFrame(clip, slot, decoded, frame);
+    } catch {
+      for (const [key, entry] of this.clipFrames) {
+        if (!key.startsWith(`${clip.id}#`)) continue;
+        void entry.frames.return().catch(() => undefined);
+        this.clipFrames.delete(key);
+      }
+      this.decoded.set(media.id, Promise.resolve(null));
+      decoded.input.dispose();
+      return undefined;
+    }
+  }
+
+  private async nextDecodedFrame(clip: MediaClip, slot: SourceSlot, decoded: DecodedVideo, frame: number): Promise<CanvasImageSource | null> {
     const key = `${clip.id}#${slot}`;
     let entry = this.clipFrames.get(key);
     if (!entry) {
