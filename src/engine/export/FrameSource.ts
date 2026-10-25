@@ -12,6 +12,26 @@ import { putMask, requestMask } from '../segmentation';
 const MEDIA_TIMEOUT_MS = 20_000;
 /** Images décodées d'avance et gardées par clip (mémoire bornée sur téléphone). */
 const CANVAS_POOL = 3;
+/**
+ * Décalage de l'instant demandé dans la source : viser pile le début d'une image fait parfois
+ * tomber sur la précédente (arrondis), ce qui double une image et en saute une (à-coups).
+ */
+const SAMPLE_OFFSET_S = 0.008;
+/** Attente maximale de l'affichage d'une image après un repositionnement (ms). */
+const PRESENT_TIMEOUT_MS = 200;
+
+/** Attend que l'image visée soit réellement prête à être dessinée après un repositionnement. */
+function framePresented(video: HTMLVideoElement): Promise<void> {
+  const frameVideo = video as HTMLVideoElement & { requestVideoFrameCallback?: (callback: () => void) => number };
+  if (!frameVideo.requestVideoFrameCallback) return Promise.resolve();
+  return new Promise((resolve) => {
+    const timer = window.setTimeout(resolve, PRESENT_TIMEOUT_MS);
+    frameVideo.requestVideoFrameCallback?.(() => {
+      window.clearTimeout(timer);
+      resolve();
+    });
+  });
+}
 
 /** Attend un événement ; un échec devient un message compréhensible dans la fenêtre d'export. */
 async function expect(target: EventTarget, event: string, name: string): Promise<void> {
@@ -53,6 +73,8 @@ export class FrameSource {
   private readonly images = new Map<string, HTMLImageElement>();
   /** Détourage : masques de l'image en cours, par clip et lecteur. */
   private readonly masks = new Map<string, HTMLCanvasElement>();
+  /** Conteneur invisible des lecteurs : Safari décode mal les vidéos qui ne sont pas dans la page. */
+  private host: HTMLDivElement | null = null;
 
   constructor(private readonly project: Project) {}
 
@@ -72,8 +94,11 @@ export class FrameSource {
           sources.set(key, image);
         } else {
           const video = await this.video(media, slot);
+          const target = sourceTimeAt(clip, t) / 1000 + SAMPLE_OFFSET_S;
           try {
-            await seekVideo(video, sourceTimeAt(clip, t) / 1000, MEDIA_TIMEOUT_MS);
+            const moving = Math.abs(video.currentTime - target) >= 0.0001;
+            await seekVideo(video, target, MEDIA_TIMEOUT_MS);
+            if (moving) await framePresented(video);
           } catch {
             throw new Error(`Lecture de « ${media.name} » impossible pendant l’export.`);
           }
@@ -122,6 +147,8 @@ export class FrameSource {
       video.load();
     }
     this.videos.clear();
+    this.host?.remove();
+    this.host = null;
     this.images.clear();
     this.masks.clear();
   }
@@ -186,7 +213,7 @@ export class FrameSource {
       const fps = this.project.fps;
       const end = clipEnd(clip);
       const timestamps: number[] = [];
-      for (let f = frame; (f * 1000) / fps < end; f++) timestamps.push(sourceTimeAt(clip, (f * 1000) / fps) / 1000);
+      for (let f = frame; (f * 1000) / fps < end; f++) timestamps.push(sourceTimeAt(clip, (f * 1000) / fps) / 1000 + SAMPLE_OFFSET_S);
       const sink = new CanvasSink(decoded.track, { width: decoded.width, height: decoded.height, fit: 'fill', poolSize: CANVAS_POOL });
       entry = { frames: sink.canvasesAtTimestamps(timestamps), frame: frame - 1, canvas: null };
       this.clipFrames.set(key, entry);
@@ -216,6 +243,15 @@ export class FrameSource {
     const source = getMediaSource(media.id);
     if (!source) throw new Error(`Fichier introuvable : ${media.name}`);
     const video = createVideoElement(source.url, true);
+    if (!this.host) {
+      this.host = document.createElement('div');
+      this.host.setAttribute('aria-hidden', 'true');
+      // Presque transparent mais pas tout à fait : une vidéo à opacité nulle n'est pas affichée par
+      // Safari, qui ne signale alors jamais ses images (attente maximale à chaque image).
+      this.host.style.cssText = 'position:fixed;left:0;top:0;width:1px;height:1px;overflow:hidden;opacity:0.01;pointer-events:none;';
+      document.body.appendChild(this.host);
+    }
+    this.host.appendChild(video);
     if (video.readyState < 1) await expect(video, 'loadedmetadata', media.name);
     // iPhone : une lecture muette brève est nécessaire pour que les images soient disponibles.
     await primeVideo(video);
